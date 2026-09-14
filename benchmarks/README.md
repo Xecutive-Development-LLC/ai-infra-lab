@@ -59,7 +59,7 @@ Each run prints a summary table and writes a full JSON record (per-request raw r
 
 # Concurrency Benchmark
 
-> **Correction (2026-09-14, same day):** early runs of this sweep for `long_long` and `vlong_short` — and the first `xlong_short`/`xlong_long` baseline run (`results/baseline_2026-09-14T19-32-53Z.json`) — reused one static prompt string across every repeat/request. vLLM's prefix caching (on by default) turned repeats into a near-free prefill after the first hit — confirmed via the server's own log, `Prefix cache hit rate: 81.3%`, and directly visible in that xlong file as an 8.7s vs. 0.29s TTFT split between two requests using the *same* ~91K-token prompt. Real traffic doesn't share prefixes across unrelated requests, so those numbers were unrealistically optimistic. Fixed in `shapes.py` (every prompt now carries a random nonce, defeating the cache by construction) and **every number below is from the corrected, cache-defeated re-run** — the original result files stay in `results/` for the record but are contaminated; don't cite them (`concurrency_2026-09-14T18-43-44Z/18-44-44Z/18-47-36Z/18-47-52Z.json` and `baseline_2026-09-14T19-32-53Z.json`).
+> **Correction (2026-09-14, same day):** early runs of this sweep for `long_long` and `vlong_short` — and two baseline runs, `results/baseline_2026-09-14T19-32-08Z.json` (existing shapes at the new 128K config) and `results/baseline_2026-09-14T19-32-53Z.json` (first `xlong_*` attempt) — reused one static prompt string across every repeat/request. vLLM's prefix caching (on by default) turned repeats into a near-free prefill after the first hit — confirmed via the server's own log, `Prefix cache hit rate: 81.3%`, and directly visible in the xlong file as an 8.7s vs. 0.29s TTFT split between two requests using the *same* ~91K-token prompt. Real traffic doesn't share prefixes across unrelated requests, so those numbers were unrealistically optimistic — including, initially, an incorrect FP8-vs-BF16 TTFT comparison below that got caught and fixed before being written down (using `baseline_2026-09-14T19-32-08Z.json`'s contaminated vlong_short TTFT as "real" BF16 made FP8 look far worse than it is). Fixed in `shapes.py` (every prompt now carries a random nonce, defeating the cache by construction) and **every number below is from a corrected, cache-defeated run** — the original result files stay in `results/` for the record but are contaminated; don't cite them for anything beyond `short_short`/`short_long` (spot-checked and confirmed unaffected — 19-token prompts have no meaningful prefill to cache): `concurrency_2026-09-14T18-43-44Z/18-44-44Z/18-47-36Z/18-47-52Z.json`, `baseline_2026-09-14T19-32-08Z.json`, `baseline_2026-09-14T19-32-53Z.json`.
 
 `bench_concurrency.py` is Phase B: fires N requests at the same time (`concurrent.futures.ThreadPoolExecutor`, one thread per in-flight request — each does a blocking streamed HTTP call, so real concurrent requests land on the server regardless of Python's GIL) for a range of concurrency levels, using a single fixed prompt/output shape throughout so the only variable being changed is concurrency itself.
 
@@ -136,10 +136,75 @@ That's the whole story in one line: this RTX 5090, at this model/dtype/`gpu-memo
 (`results/baseline_2026-09-14T19-37-18Z.json`, `results/concurrency_2026-09-14T19-38-24Z.json`.)
 
 **Findings:**
-- Raising `--max-model-len` to 128K cost *nothing* for requests that don't use it — `short_short`/`short_long`/`long_long`/`vlong_short` baseline numbers at 128K config are within noise of the same shapes measured at the 32K config (e.g. `short_short` decode: 167.6 vs 167.7 tok/s). The ceiling is only paid by whoever actually sends a long prompt, not as a tax on every request.
+- Raising `--max-model-len` to 128K cost *nothing* for requests that don't use it — `short_short`/`short_long` decode throughput at 128K config is within noise of the same shapes at the 32K config (167.6 vs 167.7 tok/s). The ceiling is only paid by whoever actually sends a long prompt, not as a tax on every request. (`long_long`/`vlong_short` were also measured at the 128K config in this same baseline run, but that run predates the prefix-cache fix above and is contaminated for those two shapes specifically — see the correction note.)
 - A genuinely fresh ~91K-token prompt costs **~17.6s just to first token**. Decode throughput (~70 tok/s) is roughly half the short-prompt rate (~165 tok/s) — attention cost per generated token grows with context length, so it's not only prefill that gets slower.
 - Concurrency at this size is exactly what the startup log predicted: **essentially none.** A second concurrent ~91K-token request doesn't add throughput (1.01x for 2x concurrency) — it just makes both requests wait roughly twice as long.
 - **Practical takeaway:** 128K context is usable for a single request at a time, with the understanding that the user is waiting ~17-20+ seconds before anything starts streaming back, and that a second simultaneous huge request will queue behind it, not run alongside it. This is not a "raise a flag and move on" config — if the application needs to serve multiple users near this context size concurrently, this single GPU cannot do that at 128K; sharding across requests to different context tiers (short/medium context on this box, genuinely huge context routed elsewhere or serialized) is the realistic near-term answer, not a bigger `--max-model-len`.
+
+---
+
+# Quantization: FP8 vs. BF16
+
+Tested [`Qwen/Qwen3-4B-Instruct-2507-FP8`](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507-FP8) — Qwen's own official checkpoint, fine-grained block-scaled FP8, not a community requantization — against the same BF16 baseline, same hardware, same prompts (unique per request throughout).
+
+## The RTX 5090-specific landmine
+
+vLLM has an open bug ([vllm-project/vllm#51884](https://github.com/vllm-project/vllm/issues/51884)): block-scaled FP8 weights fail to load on sm120 (RTX 5090 / consumer Blackwell) because vLLM routes them through DeepGEMM, whose kernels reject sm120's scale-factor layout. Confirmed real on this box — the fix is two environment variables set before `vllm serve`:
+
+```bash
+export VLLM_USE_DEEP_GEMM=0
+export VLLM_MOE_USE_DEEP_GEMM=0
+```
+
+With that set, the server log shows `Selected CutlassFp8BlockScaledMMKernel for Fp8LinearMethod` (not DeepGEMM) and loads cleanly. Without it, expect a load-time crash, not a runtime one.
+
+## VRAM / KV cache
+
+| | BF16 | FP8 | 
+|---|---|---|
+| Weights + non-torch memory | 7.64 GiB | 5.4 GiB |
+| Available for KV cache (32K config, 92% util) | 18.96 GiB | 22.27 GiB |
+| GPU KV cache size (32K config) | — | 162,144 tokens |
+| Max concurrency at 32,768 tokens/request | — | 4.95x |
+
+FP8 frees up roughly **3.3 GiB more KV cache headroom** at the same `gpu-memory-utilization`, not quite the full ~half-the-weights savings would suggest once non-torch overhead is counted, but a real, usable gain.
+
+## Throughput and latency
+
+Comparing against BF16 numbers pulled from the *corrected* (cache-defeated) concurrency sweeps above, concurrency=1 — not the contaminated baseline file, see the correction note:
+
+| shape | metric | BF16 (real) | FP8 (real) | delta |
+|---|---|---|---|---|
+| `long_long` (~3.4K prompt) | TTFT | ~0.19s | ~0.12–0.18s | same or better |
+| `long_long` | decode tok/s | ~160 | 195.6 | **+22%** |
+| `vlong_short` (~9.1K prompt) | TTFT | 0.517s | 0.378s | **~27% better** |
+| `vlong_short` | decode tok/s | 143.7 | 173–180 | **+21–25%** |
+
+(`results/baseline_2026-09-14T20-07-28Z.json` for FP8 baseline numbers.)
+
+FP8 wins on **both** axes here — faster decode (smaller weights, less memory bandwidth per token fetched) and, once measured correctly, faster-or-equal TTFT too. There's no real tradeoff visible in this data once the DeepGEMM workaround is applied; the only cost is remembering to set those two environment variables.
+
+## Concurrency: does the extra KV cache headroom translate to a higher ceiling?
+
+`vlong_short` concurrency sweep, FP8 vs. the corrected BF16 sweep from earlier:
+
+| concurrency | BF16 agg tok/s | FP8 agg tok/s | BF16 TTFT p50 | FP8 TTFT p50 |
+|---|---|---|---|---|
+| 1 | 91.2 | 115.1 | 0.517s | 0.378s |
+| 2 | 126.2 | 166.4 | 0.772s | 0.561s |
+| 4 | 159.5 | 205.5 | 1.272s | 0.944s |
+| 8 | 179.2 | 237.5 | 2.277s | 1.644s |
+| 16 | 179.8 | **247.4 (peak)** | 4.383s | 3.202s |
+| 32 | 183.8 | 241.8 | 10.369s | 6.674s |
+| 64 | 185.9 | 238.5 | 21.195s | 15.384s |
+
+(`results/concurrency_2026-09-14T20-10-16Z.json`.)
+
+**FP8's peak throughput is ~33% higher** (247 vs 186 tok/s) and its knee sits one level higher (16 vs 8) — consistent with the extra KV cache headroom buying a bit more room before the wall. At every concurrency level tested, FP8 has both higher throughput *and* lower latency than BF16 for the same shape. Past the knee, both still hit the same kind of soft wall (latency climbing, throughput flat) — FP8 shifts the wall, it doesn't remove it.
+
+## Verdict
+
+For this model/hardware, **FP8 (with the DeepGEMM workaround) looks like a strict upgrade over BF16** for this benchmark suite: faster decode, faster-or-equal TTFT, more KV cache headroom, and a meaningfully higher concurrency ceiling for the long-input/short-output shape that most resembles real tool-calling traffic. Model quality/accuracy was not evaluated here — this is a speed/capacity comparison only; a quality regression check (task-specific evals, not generic benchmarks) belongs to Phase E before treating this as a production decision, per the roadmap.
 
 ## Reference run
 
