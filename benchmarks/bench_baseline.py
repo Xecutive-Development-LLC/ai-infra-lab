@@ -19,156 +19,14 @@ import json
 import os
 import statistics
 import sys
-import time
-import urllib.error
-import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from shapes import SHAPES
+from vllm_client import RequestResult, detect_model, percentile, run_one_request
+
 DEFAULT_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://192.168.60.157:8000/v1")
-
-# Rotating filler sentences so a "long" prompt isn't just one sentence repeated
-# verbatim (which would make prefix-caching effects, if ever enabled, misleading).
-_FILLER_SENTENCES = [
-    "The inference server processes each request by tokenizing the prompt, "
-    "running it through the model, and streaming generated tokens back to the client.",
-    "GPU memory is shared between model weights, activations, and the KV cache, "
-    "and the KV cache grows with both context length and batch size.",
-    "Continuous batching lets a serving engine interleave prefill and decode work "
-    "across multiple in-flight requests instead of processing them strictly one at a time.",
-    "Benchmarking a language model server means separating prompt-processing throughput "
-    "from decode throughput, since the two phases have very different performance characteristics.",
-    "A stable production deployment needs persistence, authentication, structured logging, "
-    "and health monitoring in addition to raw inference speed.",
-]
-
-SHORT_PROMPT = (
-    "Explain in two sentences what a KV cache is and why it matters for LLM inference."
-)
-
-
-def build_long_prompt(target_words: int = 2800) -> str:
-    """~1.3 tokens/word for English BPE tokenizers, so this lands roughly in the
-    multi-thousand-token range. Actual token count is read back from the API's
-    `usage` field rather than trusted here."""
-    words = 0
-    parts = []
-    i = 0
-    while words < target_words:
-        sentence = _FILLER_SENTENCES[i % len(_FILLER_SENTENCES)]
-        parts.append(sentence)
-        words += len(sentence.split())
-        i += 1
-    parts.append(
-        "\n\nGiven all of the above, explain in two sentences what a KV cache is "
-        "and why it matters for LLM inference."
-    )
-    return " ".join(parts)
-
-
-SHAPES = {
-    "short_short": {"prompt": SHORT_PROMPT, "max_tokens": 64},
-    "short_long": {"prompt": SHORT_PROMPT, "max_tokens": 512},
-    "long_short": {"prompt": build_long_prompt(), "max_tokens": 64},
-    "long_long": {"prompt": build_long_prompt(), "max_tokens": 512},
-}
-
-
-@dataclass
-class RequestResult:
-    shape: str
-    ok: bool
-    error: str = ""
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    ttft_s: float = 0.0
-    total_latency_s: float = 0.0
-    output_tokens_per_s: float = 0.0
-    decode_tokens_per_s: float = 0.0
-    prompt_tokens_per_s: float = 0.0
-
-
-def run_one_request(base_url: str, model: str, prompt: str, max_tokens: int,
-                     shape: str, api_key: str | None) -> RequestResult:
-    url = f"{base_url.rstrip('/')}/completions"
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "max_tokens": max_tokens,
-        "temperature": 0.0,
-        "stream": True,
-        "stream_options": {"include_usage": True},
-    }
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
-    )
-
-    start = time.perf_counter()
-    ttft = None
-    usage = None
-    first_token_seen = False
-
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            for raw_line in resp:
-                line = raw_line.decode("utf-8").strip()
-                if not line or not line.startswith("data:"):
-                    continue
-                data_str = line[len("data:"):].strip()
-                if data_str == "[DONE]":
-                    break
-                chunk = json.loads(data_str)
-
-                choices = chunk.get("choices") or []
-                if choices and choices[0].get("text") and not first_token_seen:
-                    ttft = time.perf_counter() - start
-                    first_token_seen = True
-
-                if chunk.get("usage"):
-                    usage = chunk["usage"]
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
-        return RequestResult(shape=shape, ok=False, error=str(exc))
-
-    end = time.perf_counter()
-    total_latency = end - start
-
-    if ttft is None or usage is None:
-        return RequestResult(
-            shape=shape, ok=False,
-            error=f"incomplete stream (ttft={ttft}, usage={usage})",
-        )
-
-    prompt_tokens = usage.get("prompt_tokens", 0)
-    completion_tokens = usage.get("completion_tokens", 0)
-    decode_window = max(end - (start + ttft), 1e-6)
-
-    return RequestResult(
-        shape=shape,
-        ok=True,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        ttft_s=ttft,
-        total_latency_s=total_latency,
-        output_tokens_per_s=completion_tokens / total_latency if total_latency > 0 else 0.0,
-        decode_tokens_per_s=(completion_tokens - 1) / decode_window if completion_tokens > 1 else 0.0,
-        prompt_tokens_per_s=prompt_tokens / ttft if ttft > 0 else 0.0,
-    )
-
-
-def percentile(values: list[float], pct: float) -> float:
-    if not values:
-        return 0.0
-    s = sorted(values)
-    k = (len(s) - 1) * (pct / 100)
-    f, c = int(k), min(int(k) + 1, len(s) - 1)
-    if f == c:
-        return s[f]
-    return s[f] + (s[c] - s[f]) * (k - f)
 
 
 def summarize(results: list[RequestResult]) -> dict:
@@ -197,17 +55,6 @@ def summarize(results: list[RequestResult]) -> dict:
         "decode_tokens_per_s": stats("decode_tokens_per_s"),
         "prompt_tokens_per_s": stats("prompt_tokens_per_s"),
     }
-
-
-def detect_model(base_url: str, api_key: str | None) -> str:
-    url = f"{base_url.rstrip('/')}/models"
-    headers = {}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    return data["data"][0]["id"]
 
 
 def print_summary_table(summaries: dict[str, dict]) -> None:

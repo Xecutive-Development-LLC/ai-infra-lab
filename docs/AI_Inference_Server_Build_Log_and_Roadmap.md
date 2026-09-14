@@ -189,16 +189,16 @@ Do not add a maximum-context or tokens/sec claim yet. Replace this with benchmar
 ## 10. What Still Needs To Be Done
 
 ### Phase A — Finish the Baseline
-- Run a controlled single-request benchmark that reports time-to-first-token (TTFT), end-to-end latency, output tokens/sec, prompt processing throughput, and total generated tokens.
-- Repeat the same benchmark multiple times and record median/p50 and tail/p95 values rather than relying on one run.
-- Test several prompt/output shapes: short prompt + short output, short prompt + long output, long prompt + short output, and long prompt + long output.
-- Find a stable maximum context configuration empirically (for example 64K, 96K, 128K) rather than assuming the theoretical estimate is production-safe.
+- ~~Run a controlled single-request benchmark that reports time-to-first-token (TTFT), end-to-end latency, output tokens/sec, prompt processing throughput, and total generated tokens.~~ **Done** — `benchmarks/bench_baseline.py`.
+- ~~Repeat the same benchmark multiple times and record median/p50 and tail/p95 values rather than relying on one run.~~ **Done**.
+- ~~Test several prompt/output shapes: short prompt + short output, short prompt + long output, long prompt + short output, and long prompt + long output.~~ **Done** — all four shapes.
+- Find a stable maximum context configuration empirically (for example 64K, 96K, 128K) rather than assuming the theoretical estimate is production-safe. — **not done yet**.
 
 ### Phase B — Concurrency and vLLM Behavior
-- Send 2, 4, 8, and higher concurrent requests and measure aggregate throughput plus per-request latency.
-- Observe vLLM continuous batching and scheduling behavior.
-- Monitor GPU utilization, power, VRAM, KV-cache usage, request queue depth, and throughput while concurrency rises.
-- Determine the concurrency point where throughput stops scaling or latency becomes unacceptable.
+- ~~Send 2, 4, 8, and higher concurrent requests and measure aggregate throughput plus per-request latency.~~ **Done** — `benchmarks/bench_concurrency.py`, swept 1→512.
+- ~~Observe vLLM continuous batching and scheduling behavior.~~ **Done, empirically** — throughput scales near-linearly to 32, sub-linearly to a peak of ~15,400 tok/s at concurrency 256, then *regresses* past that (queuing, not an OOM/error wall — zero request failures even at 512 concurrent). See `benchmarks/README.md`.
+- Monitor GPU utilization, power, VRAM, KV-cache usage, request queue depth, and throughput while concurrency rises. — **not done**; this is client-side-only data so far. Deferred to Phase D (vLLM `/metrics` + `nvidia-smi` → Prometheus/Grafana) rather than bolted onto the concurrency script.
+- ~~Determine the concurrency point where throughput stops scaling or latency becomes unacceptable.~~ **Done** — knee at 256 (peak throughput), practical safe ceiling ~128–192 before latency degrades noticeably.
 
 ### Phase C — Make the Server Persistent and Production-Friendly
 - Make CUDA PATH persistent in the shell environment so `nvcc` is available in fresh sessions.
