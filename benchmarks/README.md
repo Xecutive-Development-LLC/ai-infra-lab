@@ -202,9 +202,29 @@ FP8 wins on **both** axes here — faster decode (smaller weights, less memory b
 
 **FP8's peak throughput is ~33% higher** (247 vs 186 tok/s) and its knee sits one level higher (16 vs 8) — consistent with the extra KV cache headroom buying a bit more room before the wall. At every concurrency level tested, FP8 has both higher throughput *and* lower latency than BF16 for the same shape. Past the knee, both still hit the same kind of soft wall (latency climbing, throughput flat) — FP8 shifts the wall, it doesn't remove it.
 
+## FP8 at 128K — does the extra KV cache headroom matter at the extreme?
+
+Same `--max-model-len 131072` restart as the BF16 128K test, FP8 model, same DeepGEMM workaround. Startup log, directly comparable to BF16's:
+
+| | BF16 @ 128K | FP8 @ 128K |
+|---|---|---|
+| GPU KV cache size | 138,064 tokens | **162,144 tokens (+17%)** |
+| Max concurrency at 131,072 tokens/request | 1.05x | **1.24x** |
+
+A real, measurable gain in the *theoretical* ceiling. In practice, tested against `xlong_short`/`xlong_long` (~91K-token prompts — the same shapes used for the BF16 128K test):
+
+| shape | BF16 TTFT | FP8 TTFT | BF16 decode | FP8 decode |
+|---|---|---|---|---|
+| `xlong_short` | 17.6s | **16.2s** | 70.7 | **77.4** |
+| `xlong_long` | 17.6s | **16.2s** | 70.0 | **76.1** |
+
+(`results/baseline_2026-09-14T20-35-03Z.json`.)
+
+Modest wins (~8-9%) — smaller than the 20-25% gains seen at shorter contexts, because at ~91K tokens attention cost (unaffected by FP8 weight quantization) dominates more of the total compute than the linear/MLP layers that actually get the speedup. **Concurrency at this prompt size is still flat**: two concurrent `xlong_short` requests gave 1.00x throughput for 2x concurrency (TTFT 16.2s → 25.0s) — no better than BF16's 1.01x. The reason: two ~91K-token requests need ~182K tokens of KV cache between them, and FP8's 162,144-token pool still isn't enough to hold two, even though it holds meaningfully more than BF16's 138,064. **The 1.05x→1.24x theoretical improvement is real but only bites at request sizes closer to the max_model_len ceiling itself** — for genuinely huge concurrent prompts like these test shapes, both precisions are still effectively single-request-at-a-time.
+
 ## Verdict
 
-For this model/hardware, **FP8 (with the DeepGEMM workaround) looks like a strict upgrade over BF16** for this benchmark suite: faster decode, faster-or-equal TTFT, more KV cache headroom, and a meaningfully higher concurrency ceiling for the long-input/short-output shape that most resembles real tool-calling traffic. Model quality/accuracy was not evaluated here — this is a speed/capacity comparison only; a quality regression check (task-specific evals, not generic benchmarks) belongs to Phase E before treating this as a production decision, per the roadmap.
+For this model/hardware, **FP8 (with the DeepGEMM workaround) looks like a strict upgrade over BF16** for this benchmark suite: faster decode (+20-25% at moderate context, a smaller but real +8-9% even at ~91K tokens), faster-or-equal TTFT everywhere tested, more KV cache headroom, and a meaningfully higher concurrency ceiling for the ~9K-token long-input/short-output shape closest to real tool-calling traffic (247 vs 186 tok/s peak). That concurrency win doesn't carry all the way to the context extreme, though — at ~91K-token prompts, both precisions are effectively single-request-at-a-time; FP8's larger KV cache pool (162,144 vs 138,064 tokens) helps, but not enough to fit two requests that size at once. Model quality/accuracy was not evaluated here — this is a speed/capacity comparison only; a quality regression check (task-specific evals, not generic benchmarks) belongs to Phase E before treating this as a production decision, per the roadmap.
 
 ## Reference run
 
