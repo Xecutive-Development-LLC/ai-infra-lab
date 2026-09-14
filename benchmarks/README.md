@@ -26,8 +26,12 @@ For each request, streamed via SSE (`stream: true`, `stream_options.include_usag
 | `long_long` | ~3.3K tokens | 512 |
 | `vlong_short` | ~9.1K tokens | 128 |
 | `vlong_long` | ~9.1K tokens | 512 |
+| `xlong_short` | ~91K tokens | 128 |
+| `xlong_long` | ~91K tokens | 512 |
 
-`vlong_*` exists to answer a specific question: what happens when a user pastes something large, or an agentic tool-calling loop's conversation history has grown deep. Short output on `vlong_short` deliberately mimics a tool-call decision (a small JSON blob), not an essay — that's the more common shape in a real tool-calling loop; `vlong_long` covers the final-summarized-response case.
+`vlong_*`/`xlong_*` exist to answer a specific question: what happens when a user pastes something large, or an agentic tool-calling loop's conversation history has grown deep. Short output on `vlong_short`/`xlong_short` deliberately mimics a tool-call decision (a small JSON blob), not an essay — that's the more common shape in a real tool-calling loop; the `*_long` variants cover the final-summarized-response case. `xlong_*` needs the server started with `--max-model-len` >= ~92K (131072/128K in practice, see the concurrency doc below) or it'll fail with a context-length error.
+
+**Every `prompt_fn()` call generates a fresh, unique prompt** (a random nonce prefix) — never a reused string. This isn't cosmetic: vLLM's prefix caching is on by default, and two requests sharing a leading substring get a (near-)free prefill on the second one. Reusing one static long-prompt string across repeats/shapes silently understated real TTFT/latency for `long_*`/`vlong_*`/`xlong_*` by a large margin — see the correction note at the top of the concurrency section below.
 
 `max_tokens` is a cap, not a target — at `temperature=0.0` the model may stop earlier on a natural end-of-sequence token (this is real signal, e.g. `short_long` almost always finishes well under 512 because a two-sentence answer doesn't need that much room). `long_long` reliably hits the cap since a long-context continuation is more open-ended.
 
@@ -54,6 +58,8 @@ Each run prints a summary table and writes a full JSON record (per-request raw r
 ---
 
 # Concurrency Benchmark
+
+> **Correction (2026-09-14, same day):** early runs of this sweep for `long_long` and `vlong_short` — and the first `xlong_short`/`xlong_long` baseline run (`results/baseline_2026-09-14T19-32-53Z.json`) — reused one static prompt string across every repeat/request. vLLM's prefix caching (on by default) turned repeats into a near-free prefill after the first hit — confirmed via the server's own log, `Prefix cache hit rate: 81.3%`, and directly visible in that xlong file as an 8.7s vs. 0.29s TTFT split between two requests using the *same* ~91K-token prompt. Real traffic doesn't share prefixes across unrelated requests, so those numbers were unrealistically optimistic. Fixed in `shapes.py` (every prompt now carries a random nonce, defeating the cache by construction) and **every number below is from the corrected, cache-defeated re-run** — the original result files stay in `results/` for the record but are contaminated; don't cite them (`concurrency_2026-09-14T18-43-44Z/18-44-44Z/18-47-36Z/18-47-52Z.json` and `baseline_2026-09-14T19-32-53Z.json`).
 
 `bench_concurrency.py` is Phase B: fires N requests at the same time (`concurrent.futures.ThreadPoolExecutor`, one thread per in-flight request — each does a blocking streamed HTTP call, so real concurrent requests land on the server regardless of Python's GIL) for a range of concurrency levels, using a single fixed prompt/output shape throughout so the only variable being changed is concurrency itself.
 
@@ -95,21 +101,45 @@ Three runs against `Qwen/Qwen3-4B-Instruct-2507` (`max_model_len=32768`), shape 
 
 This was one fixed shape (`short_long`: ~19 prompt tokens, up to 512 output) — a workload with longer prompts or a different output-length distribution would hit a different knee. Re-run with `--shape long_long` or a custom shape before trusting these exact numbers for a different traffic pattern. Tuning *why* 256 is the wall (scheduler settings, `max_num_seqs`, `gpu_memory_utilization`) is Phase G, not this script's job.
 
-## The knee moves a lot with prompt size — three shapes, three ceilings
+## The knee moves a *lot* with prompt size — three shapes, three very different ceilings
 
-Prompt length dominates the concurrency ceiling far more than output length does, because it's KV-cache pressure (proportional to total tokens in flight) that saturates first, not compute. Three sweeps against the same server, same model:
+Prompt length dominates the concurrency ceiling far more than output length does, because it's KV-cache pressure and prefill compute (proportional to total tokens in flight) that saturate first, not decode. Three sweeps against the same server, same model, all with the prefix-cache fix (unique prompt per request):
 
 | shape | prompt tokens | peak agg tok/s | concurrency at peak | median latency at peak concurrency | ceiling vs. `short_long` |
 |---|---|---|---|---|---|
 | `short_long` | ~19 | ~15,400 | 256 | 1.9s | baseline |
-| `long_long` | ~3,358 | ~4,000–4,300 (flat 64→192) | 64 (already flat) | 10.6s | **~4x lower** |
-| `vlong_short` | ~9,125 | ~1,300–1,400 (flat 32→64) | 32 (already flat) | 3.2s | **~8x lower** |
+| `long_long` | ~3,358 | **~1,200** (flat 32→128) | 32 (already flat) | 13.4s | **~13x lower** |
+| `vlong_short` | ~9,157 | **~180–186** (flat 8→64) | 8 (already flat) | 5.6s | **~83x lower** |
 
-(`vlong_short`: `results/concurrency_2026-09-14T18-47-36Z.json` + `...18-47-52Z.json`; single-request baseline in `results/baseline_2026-09-14T18-47-10Z.json`.)
+(`long_long`: `results/concurrency_2026-09-14T19-42-43Z.json`. `vlong_short`: `results/concurrency_2026-09-14T19-45-52Z.json`; single-request baseline in `results/baseline_2026-09-14T19-37-18Z.json` region.)
 
-**This matters directly for any tool-calling / agentic use case**, not just raw chat: a tool-calling loop resends its growing conversation history on every round-trip, so effective prompt size climbs within a single turn, not just across a session. At ~9K input tokens — a pasted document, a log dump, or a several-turns-deep agentic conversation — this single GPU's realistic concurrent-user ceiling is **32–48**, not the 256 the short-prompt number would suggest. For an internal tool with a handful of simultaneous users that's very likely fine; for anything with higher concurrent load, prompt size (not request count) is the number to watch.
+**This matters directly for any tool-calling / agentic use case**, not just raw chat: a tool-calling loop resends its growing conversation history on every round-trip, so effective prompt size climbs within a single turn, not just across a session. `vlong_short` is the closest proxy here to a real tool-calling round-trip (large input, small structured output) — and its ceiling is brutal: throughput is already flat by **concurrency 8**, and by concurrency 64 median latency is 30s with TTFT alone at 21s. At ~9K input tokens, this single GPU's realistic concurrent-user ceiling for that traffic shape is **single digits**, not the 32–48 the (contaminated) earlier numbers suggested. For `long_long`'s ~3.3K tokens the ceiling is a still-modest 32. Prompt size, not request count, is the number to watch — and it bites much harder than the first pass through this benchmark suggested.
 
-All three shapes hit a *soft* ceiling (queuing/latency degradation), never a hard one — zero request failures were observed at any concurrency level tested, up to 512. Don't rely on error rate as a signal that you've found the limit; watch the throughput-vs-concurrency curve and the latency percentiles together.
+All three shapes hit a *soft* ceiling (queuing/latency degradation), never a hard one in this range — zero request failures were observed at any concurrency level tested, up to 512 for `short_long`. Don't rely on error rate as a signal that you've found the limit; watch the throughput-vs-concurrency curve and the latency percentiles together.
+
+## Pushing context to 128K — where the wall actually is
+
+Restarted vLLM with `--max-model-len 131072` (128K) instead of the original 32,768. The server's own startup log gave the headline number immediately, before running a single benchmark:
+
+```
+GPU KV cache size: 138,064 tokens
+Maximum concurrency for 131,072 tokens per request: 1.05x
+```
+
+That's the whole story in one line: this RTX 5090, at this model/dtype/`gpu-memory-utilization`, has room for barely more than *one* full-length 128K request at a time. Confirmed empirically with `xlong_short`/`xlong_long` (~91K-token prompts, well short of the 131K ceiling but the largest shape in this suite):
+
+| shape | prompt tokens | TTFT (cold, unique prompt) | decode tok/s | concurrency 2 |
+|---|---|---|---|---|
+| `xlong_short` (128 out) | ~91,056 | **17.6s** | 70.7 | 27.2s TTFT, 1.01x throughput for 2x concurrency — flat |
+| `xlong_long` (512 out) | ~91,054 | **17.6s** | 70.0 | — |
+
+(`results/baseline_2026-09-14T19-37-18Z.json`, `results/concurrency_2026-09-14T19-38-24Z.json`.)
+
+**Findings:**
+- Raising `--max-model-len` to 128K cost *nothing* for requests that don't use it — `short_short`/`short_long`/`long_long`/`vlong_short` baseline numbers at 128K config are within noise of the same shapes measured at the 32K config (e.g. `short_short` decode: 167.6 vs 167.7 tok/s). The ceiling is only paid by whoever actually sends a long prompt, not as a tax on every request.
+- A genuinely fresh ~91K-token prompt costs **~17.6s just to first token**. Decode throughput (~70 tok/s) is roughly half the short-prompt rate (~165 tok/s) — attention cost per generated token grows with context length, so it's not only prefill that gets slower.
+- Concurrency at this size is exactly what the startup log predicted: **essentially none.** A second concurrent ~91K-token request doesn't add throughput (1.01x for 2x concurrency) — it just makes both requests wait roughly twice as long.
+- **Practical takeaway:** 128K context is usable for a single request at a time, with the understanding that the user is waiting ~17-20+ seconds before anything starts streaming back, and that a second simultaneous huge request will queue behind it, not run alongside it. This is not a "raise a flag and move on" config — if the application needs to serve multiple users near this context size concurrently, this single GPU cannot do that at 128K; sharding across requests to different context tiers (short/medium context on this box, genuinely huge context routed elsewhere or serialized) is the realistic near-term answer, not a bigger `--max-model-len`.
 
 ## Reference run
 

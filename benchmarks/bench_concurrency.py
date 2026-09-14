@@ -31,15 +31,17 @@ from vllm_client import RequestResult, detect_model, percentile, run_one_request
 DEFAULT_BASE_URL = os.environ.get("VLLM_BASE_URL", "http://192.168.60.157:8000/v1")
 
 
-def run_batch(base_url: str, model: str, shape: str, max_tokens: int, prompt: str,
+def run_batch(base_url: str, model: str, shape: str, max_tokens: int, prompt_fn,
               concurrency: int, api_key: str | None) -> tuple[list[RequestResult], float]:
     """Fire `concurrency` requests at once, wait for all of them, return the
-    results plus the batch's own wall-clock duration (for aggregate throughput)."""
+    results plus the batch's own wall-clock duration (for aggregate throughput).
+    Each request gets its own freshly-generated prompt via prompt_fn() — never
+    one shared string — so none of them can prefix-cache off a sibling."""
     import time
     batch_start = time.perf_counter()
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [
-            pool.submit(run_one_request, base_url, model, prompt, max_tokens, shape, api_key)
+            pool.submit(run_one_request, base_url, model, prompt_fn(), max_tokens, shape, api_key)
             for _ in range(concurrency)
         ]
         results = [f.result() for f in futures]
@@ -137,7 +139,7 @@ def main() -> int:
         pooled_results: list[RequestResult] = []
         for rep in range(args.repeats):
             results, batch_duration = run_batch(
-                args.base_url, model, args.shape, cfg["max_tokens"], cfg["prompt"], concurrency, args.api_key
+                args.base_url, model, args.shape, cfg["max_tokens"], cfg["prompt_fn"], concurrency, args.api_key
             )
             ok_results = [r for r in results if r.ok]
             total_completion_tokens = sum(r.completion_tokens for r in ok_results)

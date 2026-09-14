@@ -118,7 +118,7 @@ def main() -> int:
         print(f"Running {shape} ({args.repeats}x, max_tokens={cfg['max_tokens']})...", end=" ", flush=True)
         results = []
         for _ in range(args.repeats):
-            r = run_one_request(args.base_url, model, cfg["prompt"], cfg["max_tokens"], shape, args.api_key)
+            r = run_one_request(args.base_url, model, cfg["prompt_fn"](), cfg["max_tokens"], shape, args.api_key)
             results.append(r)
         all_results[shape] = results
         ok = sum(1 for r in results if r.ok)

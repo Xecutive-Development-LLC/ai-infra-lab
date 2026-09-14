@@ -32,7 +32,7 @@
 | Inference stack | PyTorch 2.13.0+cu132 + vLLM 0.29.0 |
 | Model | `Qwen/Qwen3-4B-Instruct-2507` |
 | API | vLLM OpenAI-compatible server on `http://0.0.0.0:8000` |
-| Configured context | 32,768 tokens |
+| Configured context | 131,072 tokens (128K) — raised from the original 32,768; see §10 Phase A |
 
 ## 3. Work Completed
 
@@ -192,13 +192,13 @@ Do not add a maximum-context or tokens/sec claim yet. Replace this with benchmar
 - ~~Run a controlled single-request benchmark that reports time-to-first-token (TTFT), end-to-end latency, output tokens/sec, prompt processing throughput, and total generated tokens.~~ **Done** — `benchmarks/bench_baseline.py`.
 - ~~Repeat the same benchmark multiple times and record median/p50 and tail/p95 values rather than relying on one run.~~ **Done**.
 - ~~Test several prompt/output shapes: short prompt + short output, short prompt + long output, long prompt + short output, and long prompt + long output.~~ **Done** — all four shapes.
-- Find a stable maximum context configuration empirically (for example 64K, 96K, 128K) rather than assuming the theoretical estimate is production-safe. — **not done yet**.
+- ~~Find a stable maximum context configuration empirically (for example 64K, 96K, 128K) rather than assuming the theoretical estimate is production-safe.~~ **Done** — server restarted at `--max-model-len 131072` (128K), which loads and serves successfully. But "stable" needs a caveat: the server's own startup log reports `GPU KV cache size: 138,064 tokens, Maximum concurrency for 131,072 tokens per request: 1.05x` — confirmed empirically (a genuine ~91K-token prompt costs ~17.6s TTFT, and a second concurrent one of similar size doesn't add throughput, just doubles the wait). 128K context is usable for one request at a time on this GPU, not for concurrent long-context traffic. See `benchmarks/README.md`.
 
 ### Phase B — Concurrency and vLLM Behavior
 - ~~Send 2, 4, 8, and higher concurrent requests and measure aggregate throughput plus per-request latency.~~ **Done** — `benchmarks/bench_concurrency.py`, swept 1→512.
-- ~~Observe vLLM continuous batching and scheduling behavior.~~ **Done, empirically** — throughput scales near-linearly to 32, sub-linearly to a peak of ~15,400 tok/s at concurrency 256, then *regresses* past that (queuing, not an OOM/error wall — zero request failures even at 512 concurrent). See `benchmarks/README.md`.
+- ~~Observe vLLM continuous batching and scheduling behavior.~~ **Done, empirically** — for a trivial (~19-token) prompt, throughput scales near-linearly to 32, sub-linearly to a peak of ~15,400 tok/s at concurrency 256, then *regresses* past that (queuing, not an OOM/error wall — zero request failures even at 512 concurrent). **This number is highly prompt-size dependent, not a general server capacity figure** — see below and `benchmarks/README.md`.
 - Monitor GPU utilization, power, VRAM, KV-cache usage, request queue depth, and throughput while concurrency rises. — **not done**; this is client-side-only data so far. Deferred to Phase D (vLLM `/metrics` + `nvidia-smi` → Prometheus/Grafana) rather than bolted onto the concurrency script.
-- ~~Determine the concurrency point where throughput stops scaling or latency becomes unacceptable.~~ **Done** — knee at 256 (peak throughput), practical safe ceiling ~128–192 before latency degrades noticeably.
+- ~~Determine the concurrency point where throughput stops scaling or latency becomes unacceptable.~~ **Done, and the answer is "it depends entirely on prompt size"**: knee at concurrency 256 for ~19-token prompts (~15,400 tok/s peak), concurrency 32 for ~3.3K-token prompts (~1,200 tok/s peak), concurrency 8 for ~9K-token prompts (~180 tok/s peak). (First-pass numbers for the two longer shapes were initially overstated by a prefix-caching methodology bug — corrected same day; see `benchmarks/README.md`.) Prompt size, not request count, is the real capacity constraint on this GPU.
 
 ### Phase C — Make the Server Persistent and Production-Friendly
 - Make CUDA PATH persistent in the shell environment so `nvcc` is available in fresh sessions.
