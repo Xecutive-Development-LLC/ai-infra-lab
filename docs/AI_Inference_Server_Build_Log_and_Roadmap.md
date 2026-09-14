@@ -215,10 +215,10 @@ Do not add a maximum-context or tokens/sec claim yet. Replace this with benchmar
 - Record hardware, model precision/quantization, context size, concurrency, and sampling parameters with every benchmark result.
 
 ### Phase E — Model Evaluation
-- Download and test additional model families and sizes that fit the RTX 5090.
-- Compare quality, speed, VRAM use, context length, and tool-calling ability.
-- Build task-specific evals for the company use cases rather than choosing models from generic benchmarks alone.
-- Test quantized variants where useful and measure the quality/performance tradeoff.
+- Download and test additional model families and sizes that fit the RTX 5090. — **research done, downloads not started.** Initially considered bigger models (Qwen3.6-27B, Mistral-Small-3.2-24B, Qwen3.6-35B-A3B MoE, all via AWQ int4) but real VRAM math ruled them out: at 22-25GB real weight size, they leave only ~2-6GB for KV cache, cutting context capacity from 128K+ down to ~23K-80K tokens (worse for the MoE model specifically, whose thin ~2GB activation margin risks a failed startup). Since context headroom matters more than raw parameter count for the target use case (growing tool-calling conversations), pivoted to same-size-class candidates instead: **`Qwen/Qwen3.5-4B`** (same family, newer gen, 262K native context, 9.3GB), **`microsoft/Phi-4-mini-instruct`** (different family, function-calling-focused, 128K native context, 7.7GB), **`google/gemma-4-E4B`** (different family, multimodal-capable, 128K native context, 16GB). All three verified via HuggingFace config/file-size checks, all comfortably preserve the current model's context capability. `ministral/Ministral-4b-instruct` was considered and dropped — fits VRAM fine but is architecturally capped at 32K context, well short of what's needed. Next session: download and benchmark these three against the Qwen3-4B(-FP8) baseline.
+- Compare quality, speed, VRAM use, context length, and tool-calling ability. — not started (needs the above models downloaded first).
+- Build task-specific evals for the company use cases rather than choosing models from generic benchmarks alone. — not started.
+- ~~Test quantized variants where useful and measure the quality/performance tradeoff.~~ **Done** — FP8 tested extensively (baseline, concurrency, and at 128K context) against BF16 for `Qwen3-4B-Instruct-2507`; looks like a strict upgrade with a documented RTX-5090-specific workaround. See `benchmarks/README.md`.
 
 ### Phase F — Application / Agent Layer
 - Build the first internal client that calls the OpenAI-compatible vLLM API instead of raw curl.
