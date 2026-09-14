@@ -44,4 +44,11 @@ SHAPES = {
     "short_long": {"prompt": SHORT_PROMPT, "max_tokens": 512},
     "long_short": {"prompt": build_long_prompt(), "max_tokens": 64},
     "long_long": {"prompt": build_long_prompt(), "max_tokens": 512},
+    # ~10K tokens: a pasted document/log, or a deep multi-turn agentic
+    # conversation history — closer to real tool-calling traffic than
+    # long_*'s ~3.3K. Paired with a short output (a tool-call decision is a
+    # small JSON blob, not an essay) and a longer one (a final summarized
+    # response) since real agentic loops produce both.
+    "vlong_short": {"prompt": build_long_prompt(target_words=7700), "max_tokens": 128},
+    "vlong_long": {"prompt": build_long_prompt(target_words=7700), "max_tokens": 512},
 }

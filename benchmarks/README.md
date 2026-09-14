@@ -24,6 +24,10 @@ For each request, streamed via SSE (`stream: true`, `stream_options.include_usag
 | `short_long` | ~1 sentence | 512 |
 | `long_short` | ~3.3K tokens (rotating filler paragraphs) | 64 |
 | `long_long` | ~3.3K tokens | 512 |
+| `vlong_short` | ~9.1K tokens | 128 |
+| `vlong_long` | ~9.1K tokens | 512 |
+
+`vlong_*` exists to answer a specific question: what happens when a user pastes something large, or an agentic tool-calling loop's conversation history has grown deep. Short output on `vlong_short` deliberately mimics a tool-call decision (a small JSON blob), not an essay — that's the more common shape in a real tool-calling loop; `vlong_long` covers the final-summarized-response case.
 
 `max_tokens` is a cap, not a target — at `temperature=0.0` the model may stop earlier on a natural end-of-sequence token (this is real signal, e.g. `short_long` almost always finishes well under 512 because a two-sentence answer doesn't need that much room). `long_long` reliably hits the cap since a long-context continuation is more open-ended.
 
@@ -90,6 +94,22 @@ Three runs against `Qwen/Qwen3-4B-Instruct-2507` (`max_model_len=32768`), shape 
 - **Practical takeaway:** for this shape/model/hardware, keep steady-state concurrency at or below ~128–192 to stay on the good side of the latency curve; 256 is the max-throughput point but already costs noticeably more latency per request than 128 does.
 
 This was one fixed shape (`short_long`: ~19 prompt tokens, up to 512 output) — a workload with longer prompts or a different output-length distribution would hit a different knee. Re-run with `--shape long_long` or a custom shape before trusting these exact numbers for a different traffic pattern. Tuning *why* 256 is the wall (scheduler settings, `max_num_seqs`, `gpu_memory_utilization`) is Phase G, not this script's job.
+
+## The knee moves a lot with prompt size — three shapes, three ceilings
+
+Prompt length dominates the concurrency ceiling far more than output length does, because it's KV-cache pressure (proportional to total tokens in flight) that saturates first, not compute. Three sweeps against the same server, same model:
+
+| shape | prompt tokens | peak agg tok/s | concurrency at peak | median latency at peak concurrency | ceiling vs. `short_long` |
+|---|---|---|---|---|---|
+| `short_long` | ~19 | ~15,400 | 256 | 1.9s | baseline |
+| `long_long` | ~3,358 | ~4,000–4,300 (flat 64→192) | 64 (already flat) | 10.6s | **~4x lower** |
+| `vlong_short` | ~9,125 | ~1,300–1,400 (flat 32→64) | 32 (already flat) | 3.2s | **~8x lower** |
+
+(`vlong_short`: `results/concurrency_2026-09-14T18-47-36Z.json` + `...18-47-52Z.json`; single-request baseline in `results/baseline_2026-09-14T18-47-10Z.json`.)
+
+**This matters directly for any tool-calling / agentic use case**, not just raw chat: a tool-calling loop resends its growing conversation history on every round-trip, so effective prompt size climbs within a single turn, not just across a session. At ~9K input tokens — a pasted document, a log dump, or a several-turns-deep agentic conversation — this single GPU's realistic concurrent-user ceiling is **32–48**, not the 256 the short-prompt number would suggest. For an internal tool with a handful of simultaneous users that's very likely fine; for anything with higher concurrent load, prompt size (not request count) is the number to watch.
+
+All three shapes hit a *soft* ceiling (queuing/latency degradation), never a hard one — zero request failures were observed at any concurrency level tested, up to 512. Don't rely on error rate as a signal that you've found the limit; watch the throughput-vs-concurrency curve and the latency percentiles together.
 
 ## Reference run
 
