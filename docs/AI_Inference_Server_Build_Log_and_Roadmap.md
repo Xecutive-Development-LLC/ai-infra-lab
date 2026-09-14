@@ -24,7 +24,7 @@
 | Virtual machine | VM 100, `ai-inference`, Ubuntu Server 24.04.4 LTS, q35 + OVMF UEFI |
 | CPU / RAM | 16 vCPU cores, 64 GiB RAM, ballooning disabled |
 | Storage | 500 GB VM disk; root LV expanded to ~450 GB ext4 |
-| Network | VirtIO on vmbr0; VM DHCP address observed as 192.168.60.81/24 |
+| Network | VirtIO on vmbr0; static address 192.168.60.157/24 (converted from DHCP — see §7) |
 | GPU passthrough | RTX 5090 at host PCI 41:00.0 plus audio function 41:00.1, isolated with IOMMU and bound to vfio-pci |
 | Guest GPU driver | NVIDIA 595.84 open driver |
 | CUDA | Driver compatibility reports CUDA 13.2; full CUDA Toolkit 13.2 installed at `/usr/local/cuda-13.2` |
@@ -161,6 +161,7 @@ watch -n 0.5 nvidia-smi
 | vLLM JIT failed: `nvcc` not found | NVIDIA driver was installed, but the full CUDA Toolkit was not. `nvidia-smi`'s CUDA version only indicated driver compatibility | Installed NVIDIA CUDA Toolkit 13.2 and exported `/usr/local/cuda/bin` into PATH |
 | 262K context failed | KV-cache requirement was about 36 GiB, larger than the ~18.96 GiB vLLM had available for KV cache | Reduced `--max-model-len` to 32768 |
 | `curl` reported `Could not resolve host: hcurl` | An accidental extra string was included before the valid curl invocation | Ignored the malformed fragment; the subsequent valid request succeeded |
+| VM's DHCP address changed on restart (`.81` → `.157`), breaking the assumed SSH/API endpoint | No DHCP reservation; guest used a dynamic lease that wasn't guaranteed to persist across a host/VM restart | Converted the guest to a static IP via netplan (`/etc/netplan/50-cloud-init.yaml`, `dhcp4: no`) and disabled cloud-init's network management (`/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg`) so it doesn't get silently reverted on next boot |
 
 ## 8. Current Measurements and Observations
 
