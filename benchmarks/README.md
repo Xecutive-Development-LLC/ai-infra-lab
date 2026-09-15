@@ -327,3 +327,106 @@ use case until its long-prompt bug is resolved.
 As always: **speed and capacity only, quality not evaluated.** Before touching the
 production server config, Phase E (task-specific quality evals) still needs to
 happen — this comparison narrows the field, it doesn't make the final call.
+
+---
+
+# Model Comparison Round 2: Casting a Wider Net
+
+Full raw results: [`docs/MODEL_COMPARISON_ROUND2_RESULTS.md`](../docs/MODEL_COMPARISON_ROUND2_RESULTS.md).
+This section is the summary.
+
+Round 1 stuck to same-size-class Qwen/Phi/Gemma alternatives. Round 2 went
+back to vLLM's actual supported-architectures list
+(<https://docs.vllm.ai/en/latest/models/supported_models/>) and picked 5 new
+families, prioritizing hybrid/linear-attention designs — the strongest
+predictor of long-context performance found so far. Every candidate was
+verified against the live HuggingFace API *and* the installed vLLM's own
+`ModelRegistry` before downloading anything, after round 1's Gemma bug made
+clear that "vLLM supports it" and "this exact install actually serves it
+correctly" are different claims.
+
+**Net result: no clean new champion, but one very promising and unresolved
+lead, four confirmed landmines, and one clearly-adoptable VRAM win.**
+
+## The promising lead: Granite-4.0-H-Micro (with a serious caveat)
+
+At 128K context, `ibm-granite/granite-4.0-h-micro` — 3.2B params, less than
+half the size of round 1's Qwen3.5-4B winner — with an AWQ quant hits **350-437
+tok/s decode and 4.1s TTFT on a real ~91K-token prompt**, more than double
+Qwen3.5-4B-FP8's 161 tok/s / 6.3s at the identical shape. Its KV-cache
+capacity (2.1-3.0 *million* tokens) dwarfs every other model tested in this
+project by one to two orders of magnitude — its `GraniteMoeHybridForCausalLM`
+architecture runs Mamba2 for 9 of every 10 layers, and Mamba state doesn't
+grow with sequence length the way attention KV cache does.
+
+The catch: the identical checkpoint is **almost entirely broken at 32K
+context** — even trivial 26-token prompts fail — while running cleanly at
+128K. The unquantized BF16 version also shows a real, if smaller, failure
+rate at 32K under concurrent load that doesn't show up at 128K. Same model,
+same weights, only `--max-model-len` differs between working and broken.
+**This isn't root-caused yet** — flagging it as the single most interesting
+open question from this round rather than a result to act on. If it turns out
+to be a fixable config issue rather than a fundamental bug, Granite-4.0-H-Micro
+would likely become the new champion outright.
+
+## The speed champion that can't do the job it needs to do
+
+`LiquidAI/LFM2.5-2.6B` — the smallest model tested in this project (2.7B) —
+posted the **highest raw throughput measured anywhere in this repo**: 20,997
+tok/s peak aggregate (beats Gemma-4-E4B-it's round-1 record of 16,403), with
+245-333 tok/s single-request decode, up to ~9.8K real prompt tokens. Then it
+**fails 100% of requests at 128K context** — same "clean `200 OK`,
+`completion_tokens: 1`, zero content" signature Gemma showed in round 1, just
+triggered by a different condition (long context here, vs. any prompt over
+~30 tokens for Gemma). Excellent candidate for a short/medium-context use
+case; unusable for this repo's actual long-tool-calling-history priority.
+
+## Three architectures that don't load at all on this install
+
+- **`tiiuae/Falcon-H1-7B-Instruct`** (BF16, no quant available) — hits a hard
+  ~16.84 GiB CUDA-graph-profiling allocation that doesn't shrink under either
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` or a lower
+  `--gpu-memory-utilization` — genuinely too tight for this 32GB GPU under
+  vLLM 0.29's current memory-profiling behavior for this hybrid architecture.
+- **`nvidia/Nemotron-H-8B-Reasoning-128K-FP8`** (the *official* NVIDIA FP8
+  checkpoint) — fails during weight loading (`'MergedColumnParallelLinear'
+  object has no attribute 'data'`), a real vLLM/checkpoint incompatibility.
+  The BF16 version of the same model works fine.
+- **`mistralai/Ministral-3-8B-Instruct-2512`** (both precisions) — fails to
+  even import (`ImportError: cannot import name 'PixtralRotaryEmbedding'`), a
+  `transformers`/vLLM version-skew bug in the vision-tower code path that
+  loads regardless of whether images are ever sent.
+
+None of these are model quality problems — they're all serving-stack
+compatibility gaps, most plausibly fixable on a future vLLM/transformers
+upgrade.
+
+## The adoptable win: `--kv-cache-dtype fp8`
+
+Separate from every weight quantization tested so far, vLLM can quantize the
+**KV cache** itself. Tested on the round-1 champion (Qwen3.5-4B-FP8 @ 128K),
+changing nothing else:
+
+| | baseline (`auto`) | `--kv-cache-dtype fp8` | Delta |
+|---|---|---|---|
+| KV cache size | 634,799 tokens | 1,205,662 tokens | **+90%** |
+| Max concurrency @ 128K | 4.84x | 9.20x | **~1.9x** |
+| Decode tok/s | 161.1 | 185.3 | **+15%** |
+| TTFT | 6.3s | 7.6s | -20% (worse) |
+
+Roughly double the KV-cache headroom and concurrency ceiling, plus slightly
+*faster* decode (less memory bandwidth per attention read), for one flag on
+an already-running model — no download, no new model risk. The tradeoff is
+~20% worse TTFT (extra quantize/dequantize overhead during prefill), and the
+extra headroom doesn't help genuinely huge simultaneous prompts (~91K tokens)
+scale any better — that's compute-bound, not memory-bound, confirming round
+1's finding. **This is a real, low-effort software-level capacity win,
+directly answering "optimize before buying more hardware"** — worth adopting
+on whichever model ends up in production.
+
+Other untested-but-real levers found in `vllm serve --help`:
+`--language-model-only` (skip loading vision/audio towers on multimodal
+models used text-only), `--cpu-offload-gb` (offload weights to the 62GB of
+system RAM, virtually extending VRAM at a PCIe-latency cost), and
+`--kv-offloading-size` (offload cold KV-cache blocks to CPU RAM rather than
+the whole model).
