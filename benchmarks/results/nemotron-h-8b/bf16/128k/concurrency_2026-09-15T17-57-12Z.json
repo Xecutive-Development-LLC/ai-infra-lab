@@ -1,0 +1,164 @@
+{
+  "timestamp_utc": "2026-09-15T17-57-12Z",
+  "base_url": "http://192.168.60.157:8000/v1",
+  "model": "nvidia/Nemotron-H-8B-Reasoning-128K",
+  "shape": "xlong_short",
+  "levels": [
+    1,
+    2
+  ],
+  "repeats": 2,
+  "sampling": {
+    "temperature": 0.0
+  },
+  "summaries": [
+    {
+      "concurrency": 1,
+      "n_requests": 2,
+      "failed": 0,
+      "aggregate_output_tokens_per_s": {
+        "median": 6.158,
+        "p95": 6.162,
+        "min": 6.154,
+        "max": 6.162
+      },
+      "ttft_s": {
+        "median": 8.837,
+        "p95": 8.84,
+        "min": 8.834,
+        "max": 8.84
+      },
+      "total_latency_s": {
+        "median": 9.414,
+        "p95": 9.417,
+        "min": 9.41,
+        "max": 9.417
+      }
+    },
+    {
+      "concurrency": 2,
+      "n_requests": 4,
+      "failed": 0,
+      "aggregate_output_tokens_per_s": {
+        "median": 6.513,
+        "p95": 6.852,
+        "min": 6.135,
+        "max": 6.89
+      },
+      "ttft_s": {
+        "median": 13.426,
+        "p95": 17.91,
+        "min": 8.922,
+        "max": 17.925
+      },
+      "total_latency_s": {
+        "median": 16.756,
+        "p95": 18.541,
+        "min": 14.047,
+        "max": 18.565
+      }
+    }
+  ],
+  "raw_by_level": {
+    "1": {
+      "batch_throughputs": [
+        6.1619920242101065,
+        6.15354625709637
+      ],
+      "results": [
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93158,
+          "completion_tokens": 58,
+          "ttft_s": 8.834150582999428,
+          "total_latency_s": 9.409863499999119,
+          "output_tokens_per_s": 6.163745095771626,
+          "decode_tokens_per_s": 99.00767955156118,
+          "prompt_tokens_per_s": 10545.213048470632,
+          "start_time": 16233.226300958,
+          "end_time": 16242.636164458
+        },
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93157,
+          "completion_tokens": 58,
+          "ttft_s": 8.84025416700024,
+          "total_latency_s": 9.417385250000734,
+          "output_tokens_per_s": 6.1588220573216415,
+          "decode_tokens_per_s": 98.76439110445749,
+          "prompt_tokens_per_s": 10537.819189378684,
+          "start_time": 16242.644745708,
+          "end_time": 16252.062130958
+        }
+      ]
+    },
+    "2": {
+      "batch_throughputs": [
+        6.8900007941664745,
+        6.135448981423658
+      ],
+      "results": [
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93160,
+          "completion_tokens": 64,
+          "ttft_s": 9.028571750000992,
+          "total_latency_s": 15.108591374999378,
+          "output_tokens_per_s": 4.23600045904363,
+          "decode_tokens_per_s": 10.36180865946082,
+          "prompt_tokens_per_s": 10318.354063032148,
+          "start_time": 16252.069377041,
+          "end_time": 16267.177968416
+        },
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93162,
+          "completion_tokens": 64,
+          "ttft_s": 17.925462749999497,
+          "total_latency_s": 18.565022417000364,
+          "output_tokens_per_s": 3.4473429960092004,
+          "decode_tokens_per_s": 98.50527362901165,
+          "prompt_tokens_per_s": 5197.188005648703,
+          "start_time": 16252.075039083,
+          "end_time": 16270.6400615
+        },
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93158,
+          "completion_tokens": 55,
+          "ttft_s": 8.922341417001007,
+          "total_latency_s": 14.046573625000747,
+          "output_tokens_per_s": 3.9155456318620248,
+          "decode_tokens_per_s": 10.53816412060668,
+          "prompt_tokens_per_s": 10440.981312651049,
+          "start_time": 16270.648965916,
+          "end_time": 16284.695539541
+        },
+        {
+          "shape": "xlong_short",
+          "ok": true,
+          "error": "",
+          "prompt_tokens": 93159,
+          "completion_tokens": 58,
+          "ttft_s": 17.823628457999803,
+          "total_latency_s": 18.4028330000001,
+          "output_tokens_per_s": 3.15168865576293,
+          "decode_tokens_per_s": 98.41083048684155,
+          "prompt_tokens_per_s": 5226.713529151654,
+          "start_time": 16270.654925375,
+          "end_time": 16289.057758375
+        }
+      ]
+    }
+  }
+}
