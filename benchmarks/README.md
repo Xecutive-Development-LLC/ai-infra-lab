@@ -345,29 +345,51 @@ verified against the live HuggingFace API *and* the installed vLLM's own
 clear that "vLLM supports it" and "this exact install actually serves it
 correctly" are different claims.
 
-**Net result: no clean new champion, but one very promising and unresolved
-lead, four confirmed landmines, and one clearly-adoptable VRAM win.**
+**Net result: no clean new champion, four confirmed landmines (one
+corrected after a same-day follow-up investigation), and one
+clearly-adoptable VRAM win.**
 
-## The promising lead: Granite-4.0-H-Micro (with a serious caveat)
+## Granite-4.0-H-Micro: impressive numbers, real unreliability — and a corrected root cause
 
-At 128K context, `ibm-granite/granite-4.0-h-micro` — 3.2B params, less than
-half the size of round 1's Qwen3.5-4B winner — with an AWQ quant hits **350-437
-tok/s decode and 4.1s TTFT on a real ~91K-token prompt**, more than double
+`ibm-granite/granite-4.0-h-micro` — 3.2B params, less than half the size of
+round 1's Qwen3.5-4B winner — with an AWQ quant hits **350-437 tok/s decode
+and 4.1s TTFT on a real ~91K-token prompt at 128K context**, more than double
 Qwen3.5-4B-FP8's 161 tok/s / 6.3s at the identical shape. Its KV-cache
 capacity (2.1-3.0 *million* tokens) dwarfs every other model tested in this
 project by one to two orders of magnitude — its `GraniteMoeHybridForCausalLM`
 architecture runs Mamba2 for 9 of every 10 layers, and Mamba state doesn't
 grow with sequence length the way attention KV cache does.
 
-The catch: the identical checkpoint is **almost entirely broken at 32K
-context** — even trivial 26-token prompts fail — while running cleanly at
-128K. The unquantized BF16 version also shows a real, if smaller, failure
-rate at 32K under concurrent load that doesn't show up at 128K. Same model,
-same weights, only `--max-model-len` differs between working and broken.
-**This isn't root-caused yet** — flagging it as the single most interesting
-open question from this round rather than a result to act on. If it turns out
-to be a fixable config issue rather than a fundamental bug, Granite-4.0-H-Micro
-would likely become the new champion outright.
+The original writeup here said this checkpoint was "broken at 32K, clean at
+128K" and left it as an open question. **That was wrong, and a same-day
+follow-up investigation found the real cause**: it's not about
+`--max-model-len` at all. Direct `curl` testing (bypassing the benchmark
+harness, to rule out a client bug) found the actual trigger is **prompt
+length alone** — prompts under ~12,000 tokens fail reliably (`200 OK`,
+`completion_tokens: 1`, empty text) **at both 32K and 128K**, and prompts
+above that threshold succeed reliably at either config. Three plausible
+mechanisms were ruled out by direct A/B test (prefix caching, CUDA graph
+capture/replay — neither changed the outcome at all). The unquantized BF16
+checkpoint shows the identical failure signature, just far narrower — ~40-60%
+of attempts fail on trivial ~20-30-token prompts, content-dependent, while
+its ~3.3K-token prompts succeed reliably. **Best-supported explanation**: a
+real fragility in this hybrid Mamba2/MoE architecture at short-to-medium
+prompt lengths (plausibly insufficient "warm-up" signal in the Mamba state
+and/or MoE router on a fresh short sequence), which this community AWQ
+4-bit quantization amplifies from "rare, ~30 tokens" to "reliable, ~12,000
+tokens" — consistent with a brand-new hybrid architecture being unusually
+sensitive to quantization noise in exactly the cases where it was already
+marginal. Full investigation and evidence in `docs/MODEL_COMPARISON_ROUND2_RESULTS.md`.
+
+This is a **stronger** disqualifier than the original "broken at 32K"
+framing, not a weaker one: a real tool-calling conversation starts short and
+grows, so it spends most of its life exactly in the prompt-length range where
+this model is unreliable — the excellent 91K-token numbers don't matter if
+the model can't reliably get through the early turns of that same
+conversation. Not a production candidate as this checkpoint stands, but the
+128K numbers are real enough to be worth revisiting if a fix (official
+checkpoint, different quant, or an upstream vLLM/architecture fix) ever
+shows up.
 
 ## The speed champion that can't do the job it needs to do
 
