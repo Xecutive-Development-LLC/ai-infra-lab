@@ -238,3 +238,92 @@ For this model/hardware, **FP8 (with the DeepGEMM workaround) looks like a stric
 | long_long | 3358 | 512 | 0.038s | 0.111s | 3.249s | 3.257s | 159.2 | 162.4 |
 
 Steady-state decode throughput sits around 160–168 tok/s at concurrency=1, consistent with (a bit above) the doc's earlier uncontrolled log readings of 97–163 tok/s. TTFT stays under 160ms even at ~3.3K prompt tokens on this 4B model.
+
+---
+
+# Model Comparison: Qwen3.5-4B vs. Phi-4-mini-instruct vs. Gemma-4-E4B-it
+
+Full raw numbers for every model/precision/context combination live in a
+dedicated doc — [`docs/MODEL_COMPARISON_RESULTS.md`](../docs/MODEL_COMPARISON_RESULTS.md)
+— since there are twelve separate runs' worth of tables. This section is the
+narrative summary and cross-model synthesis.
+
+Same-size-class candidates from the roadmap ("bigger models cut context capacity
+the wrong direction for a growing tool-calling use case, so compare against
+same-size alternatives instead"): `Qwen/Qwen3.5-4B`, `microsoft/Phi-4-mini-instruct`,
+`google/gemma-4-E4B-it` (corrected from the README's placeholder `gemma-4-E4B` —
+that's the non-instruct base checkpoint), each tested in BF16 and an FP8-dynamic
+quant, at both 32K and 128K `--max-model-len`, same harness and methodology as
+every other benchmark in this repo (unique-nonce prompts, `temperature=0.0`).
+
+## The headline: Qwen3.5-4B beats the incumbent at its own game
+
+At the shape that matters most for this repo's use case — a ~91K-token prompt at
+128K context, standing in for a deep tool-calling conversation history —
+Qwen3.5-4B-FP8 delivers:
+
+| | Incumbent (Qwen3-4B-Instruct-2507-FP8) | Qwen3.5-4B-FP8 | Delta |
+|---|---|---|---|
+| TTFT @ xlong_short | 16.2s | 6.3s | **~2.6x faster** |
+| Decode tok/s @ xlong_short | 77.4 | 161.1 | **~2.1x faster** |
+| GPU KV cache size @ 128K | 162,144 tokens | 634,799 tokens | **~3.9x more headroom** |
+| Max concurrency @ 128K | 1.24x | 4.84x | **~3.9x higher ceiling** |
+
+This isn't a quantization artifact — BF16-vs-BF16 shows the same gap (Qwen3.5-4B
+BF16: 7.1s TTFT / 129 tok/s decode vs. the incumbent's BF16: 17.6s / 70.7 tok/s).
+The likely cause: Qwen3.5-4B mixes in linear-attention layers (Gated DeltaNet-style
+— visible in its FP8 quant config's per-layer `linear_attn` targets and in vLLM's
+compiled op list, `qwen_gdn_attention_core`) alongside standard attention. Linear
+attention's per-token cost doesn't grow with sequence length the way standard
+attention's does, so a hybrid architecture pays less of the long-context tax —
+consistent with both the smaller TTFT/decode gap at long context *and* the ~4x
+larger raw KV-cache-token capacity at the same `--max-model-len`.
+
+At shorter shapes the two are closer (Qwen3.5-4B still wins on decode throughput
+by 20-25% with FP8, same pattern as the original FP8-vs-BF16 comparison), but the
+long-context gap is where this result actually matters for the roadmap's stated
+priority ("growing tool-calling conversations want *more* context, not less").
+
+## Phi-4-mini-instruct: fine at 32K, falls off a cliff at 128K
+
+Competitive at moderate context — FP8 decode reaches 145-261 tok/s across
+short/long/vlong shapes, comparable to or better than the incumbent. But at 128K,
+decode collapses to **~11 tok/s** (both precisions) — a 6-7x drop from its own 32K
+numbers, and *worse* than the incumbent's own 128K decode (70-77 tok/s). Its raw
+KV-cache-token capacity (152K-177K) is in the same range as the incumbent's
+(138K-162K) rather than the ~500K-900K the other two candidates show — consistent
+with `Phi3ForCausalLM` being a conventional dense-attention architecture with none
+of Qwen3.5's or Gemma's hybrid-attention relief. Not a fit for this repo's
+long-context priority.
+
+## Gemma-4-E4B-it: architecturally the most promising, but currently broken
+
+Gemma-4-E4B-it has the **largest KV-cache headroom of any model tested in this
+repo** (596K-890K tokens, 18-22x max concurrency at 32K) and the **fastest raw
+throughput measured here** (16,403 tok/s peak aggregate at concurrency 256, beating
+even the incumbent's reference sweep) — on short prompts. **Every single request
+with a prompt longer than ~30 tokens failed**, identically across both precisions
+and both context configs: the server returns `200 OK` with `completion_tokens: 1`
+and zero visible content, i.e. an immediate end-of-sequence token, with no error
+anywhere in the server log. Reproduced directly (not just inferred) — see
+`docs/MODEL_COMPARISON_RESULTS.md` for the full repro and a best-effort root-cause
+hypothesis (vLLM falls back to `TRITON_ATTN` for this architecture's heterogeneous
+sliding/full-attention heads since FA4 isn't available, and a correctness bug in
+that fallback for long sequences is the most consistent explanation for what was
+observed). **Not usable for this repo's use case until this is fixed upstream** —
+flagging it here rather than silently excluding it, same as the RTX 5090 DeepGEMM
+landmine got flagged rather than worked around quietly.
+
+## Verdict
+
+**Qwen3.5-4B-FP8 looks like a genuine upgrade over the current production
+incumbent** for this repo's actual priority (long-context speed and concurrency),
+backed by a real architectural difference rather than a lucky benchmark run — the
+gap holds across every shape tested. Phi-4-mini-instruct doesn't fit the
+long-context priority despite being fine at short context. Gemma-4-E4B-it is the
+most architecturally interesting of the three but can't be evaluated for the real
+use case until its long-prompt bug is resolved.
+
+As always: **speed and capacity only, quality not evaluated.** Before touching the
+production server config, Phase E (task-specific quality evals) still needs to
+happen — this comparison narrows the field, it doesn't make the final call.

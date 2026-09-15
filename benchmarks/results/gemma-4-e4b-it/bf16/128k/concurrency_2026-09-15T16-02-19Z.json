@@ -1,0 +1,164 @@
+{
+  "timestamp_utc": "2026-09-15T16-02-19Z",
+  "base_url": "http://192.168.60.157:8000/v1",
+  "model": "google/gemma-4-E4B-it",
+  "shape": "xlong_short",
+  "levels": [
+    1,
+    2
+  ],
+  "repeats": 2,
+  "sampling": {
+    "temperature": 0.0
+  },
+  "summaries": [
+    {
+      "concurrency": 1,
+      "n_requests": 2,
+      "failed": 2,
+      "aggregate_output_tokens_per_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "ttft_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total_latency_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      }
+    },
+    {
+      "concurrency": 2,
+      "n_requests": 4,
+      "failed": 4,
+      "aggregate_output_tokens_per_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "ttft_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "total_latency_s": {
+        "median": 0.0,
+        "p95": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      }
+    }
+  ],
+  "raw_by_level": {
+    "1": {
+      "batch_throughputs": [
+        0.0,
+        0.0
+      ],
+      "results": [
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93159, 'total_tokens': 93160, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9332.429263666,
+          "end_time": 9343.120839125
+        },
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93156, 'total_tokens': 93157, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9343.130178541,
+          "end_time": 9353.956436708
+        }
+      ]
+    },
+    "2": {
+      "batch_throughputs": [
+        0.0,
+        0.0
+      ],
+      "results": [
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93156, 'total_tokens': 93157, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9353.968585125,
+          "end_time": 9375.123916541
+        },
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93152, 'total_tokens': 93153, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9353.977022,
+          "end_time": 9364.709386333
+        },
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93159, 'total_tokens': 93160, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9375.132966041,
+          "end_time": 9385.895601375
+        },
+        {
+          "shape": "xlong_short",
+          "ok": false,
+          "error": "incomplete stream (ttft=None, usage={'prompt_tokens': 93157, 'total_tokens': 93158, 'completion_tokens': 1})",
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "ttft_s": 0.0,
+          "total_latency_s": 0.0,
+          "output_tokens_per_s": 0.0,
+          "decode_tokens_per_s": 0.0,
+          "prompt_tokens_per_s": 0.0,
+          "start_time": 9375.142533541,
+          "end_time": 9396.381458041
+        }
+      ]
+    }
+  }
+}
