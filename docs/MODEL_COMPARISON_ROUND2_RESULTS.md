@@ -1,5 +1,20 @@
 # Model Comparison Round 2: Full Results
 
+> **Correction (2026-09-15, same day):** this doc originally attributed
+> Granite-4.0-H-Micro-AWQ's failures to `--max-model-len` ("broken at 32K,
+> clean at 128K"). That was wrong — an artifact of the test matrix, not the
+> real cause. The 128K config's baseline only ever runs `xlong_short`/`xlong_long`
+> (~91K-token prompts); it was **never actually tested with a short prompt**,
+> so "clean at 128K" was a claim about long prompts only, not about the
+> config in general. Direct follow-up testing (see "Landmine 4, corrected"
+> below) found the real trigger is **prompt length alone, independent of
+> `--max-model-len`**: the exact same failure reproduces at 128K too for
+> anything under roughly 12,000-13,000 tokens, and the exact same success
+> reproduces at 32K for anything above that threshold. Every number in this
+> doc is still accurate; only the causal story for Landmine 4 needed fixing.
+> Full corrected writeup below, kept rather than silently edited away — same
+> policy as the earlier prefix-caching correction in `benchmarks/README.md`.
+
 Round 2 casts a wider net across vLLM's full supported-architectures list
 (<https://docs.vllm.ai/en/latest/models/supported_models/>), rather than
 just same-family follow-ups. Companion to
@@ -49,17 +64,19 @@ required.
 ## What actually worked — 10 of 18 planned runs
 
 9 model/quant variants × 2 contexts (32K, 128K) = 18 planned runs. **10
-completed cleanly, 3 combinations failed to load at all (2 different root
-causes), and 2 more loaded but failed on specific request types (3 more
-findings, detailed below).**
+servers came up and produced a result file; 3 combinations failed to load at
+all (2 different root causes); 2 more loaded but a large fraction of
+individual requests failed on specific prompt shapes/lengths** (Granite's
+"loaded" runs specifically should not be read as "worked" — see "Landmine 4,
+corrected" below for what was actually reliable within them).
 
 | Model | Precision | Status | Notes |
 |---|---|---|---|
 | Falcon-H1-7B-Instruct | BF16 | **Failed to load, both contexts** | Hard VRAM ceiling — see below |
 | Nemotron-H-8B-Reasoning-128K | BF16 | OK, both contexts | |
 | Nemotron-H-8B-Reasoning-128K | FP8 (official) | **Failed to load, both contexts** | Weight-loader bug — see below |
-| Granite-4.0-H-Micro | BF16 | OK, both contexts, but see reliability note | |
-| Granite-4.0-H-Micro | AWQ | OK at 128K (exceptional); **broken at 32K** | See below |
+| Granite-4.0-H-Micro | BF16 | Loaded both contexts; **unreliable on short prompts** | See "Landmine 4, corrected" |
+| Granite-4.0-H-Micro | AWQ | Loaded both contexts; **unreliable under ~12K-token prompts, both contexts** | See "Landmine 4, corrected" |
 | LFM2.5-2.6B | BF16 | OK at 32K (exceptional); **100% fails at 128K** | Same signature as Gemma's bug — see below |
 | LFM2.5-2.6B | FP8 | OK at 32K (exceptional); **100% fails at 128K** | Same |
 | Ministral-3-8B-Instruct | BF16 + FP8 | **Failed to load, all 4 combos** | `transformers`/vLLM version mismatch — see below |
@@ -135,43 +152,73 @@ its old name. This is a version-skew bug between the two packages on this
 install, not something fixable by changing serve flags. Blocks this model
 entirely until `transformers` or vLLM is updated to match.
 
-## Landmine 4: the "immediate EOS" bug from round 1 (Gemma) recurs on two more models, in different specific conditions
+## Landmine 4, corrected: the "immediate EOS" bug is about prompt length, not `--max-model-len`
 
 Round 1 found Gemma-4-E4B-it failing 100% of requests past ~30 prompt tokens,
 with a `200 OK` / `completion_tokens: 1` / zero-visible-content signature.
 **The exact same signature shows up on two more, architecturally unrelated
-models this round** — but under different specific conditions each time,
-which argues against one single shared root cause:
+models this round.**
 
 - **LFM2.5-2.6B (both BF16 and FP8) fails 100% of `xlong_short`/`xlong_long`
   requests at 128K context** (~91-97K-token prompts) — but is completely
   clean at 32K, including its own `vlong_short`/`vlong_long` shapes up to
-  ~9.8K real tokens. Context-length-triggered, like Gemma, but at a much
-  higher threshold and only at the 128K server config specifically.
-- **Granite-4.0-H-Micro-AWQ fails 100% of ALL six 32K baseline shapes**,
-  including `short_short` at a trivial ~26 tokens — but is **completely
-  clean at 128K**, including three real 91K-token requests with excellent
-  throughput (see below). Same checkpoint, same architecture, only
-  `--max-model-len` differs between the working and broken server. Not
-  content-length-triggered at all in this case — the opposite pattern from
-  Gemma and LFM2.5.
-- **Granite-4.0-H-Micro BF16 (unquantized) at 32K also shows a real but
-  partial failure rate** — 2/5 requests failed on `short_short` and
-  `short_long` in the baseline sweep (0 failures on every other shape), and a
-  much higher failure rate under concurrent load specifically at 32K (688 of
-  up to 2,304 requests failed in the `short_long` concurrency sweep; 0 failed
-  in the same sweep at 128K). The 32K config for this model looks
-  meaningfully less stable than 128K in general, not just for the AWQ
-  variant.
+  ~9.8K real tokens. Not re-investigated after the Granite finding below;
+  the same "is it really about `--max-model-len`, or about prompt length
+  independent of it?" question applies here too and is still open.
+- **Granite-4.0-H-Micro-AWQ** was originally reported as "broken at 32K,
+  clean at 128K." **This was wrong.** Direct follow-up investigation (raw
+  `curl` requests against a live server, bypassing the benchmark harness
+  entirely, to rule out a client-side bug) found:
 
-Three different models, three different specific trigger conditions
-(long-context only / short-context-and-everything-at-32K-only /
-partial-and-load-dependent), same downstream symptom. This reads as more than
-one bug rather than one unifying cause — possibly several different edge
-cases in how vLLM 0.29 handles brand-new architectures under specific
-context-length/batching conditions. Flagging as a pattern worth watching on a
-future vLLM upgrade, not claiming a single explanation the evidence doesn't
-support.
+  1. The 128K config's baseline test only ever sends `xlong_short`/`xlong_long`
+     (~91K tokens) — it was never tested with a short prompt. Sending the
+     exact same short prompt that fails at 32K to the **128K** server
+     produces the **identical failure** (`completion_tokens: 1`, empty text).
+     `--max-model-len` was never the variable.
+  2. Binary-searching prompt length against a single server (`--max-model-len 32768`,
+     unchanged) found a hard crossover: prompts up to ~11,878 tokens fail
+     100% of the time; prompts at ~12,813 tokens and above succeed reliably.
+     This holds at both 32K and 128K `--max-model-len` — it's the same
+     threshold either way.
+  3. Ruled out three plausible mechanisms by direct A/B test, each a
+     clean retry changing exactly one flag: **prefix caching**
+     (`--no-enable-prefix-caching` — still fails), and **CUDA graph
+     capture/replay** (`--enforce-eager` — still fails). Neither moved the
+     failure at all.
+  4. **The unquantized BF16 checkpoint shows the same shape of bug, just far
+     narrower**: repeating the ~20-30-token `short_short` shape 5 times with
+     different random content, BF16 failed 3/5 times (empty completion,
+     same signature) — genuinely non-deterministic per exact prompt content
+     at trivial length, matching round 1's original 2/5 partial-failure
+     finding for this shape — while its `long_short` (~3.3K tokens) prompt
+     succeeded cleanly every time tested. **AWQ shows the identical failure
+     mode but the affected range is roughly 400x wider** (unreliable up to
+     ~12,000 tokens instead of ~30).
+
+  **Best-supported conclusion**: there's a real, pre-existing fragility in
+  `GraniteMoeHybridForCausalLM` at short-to-medium prompt lengths — plausibly
+  the Mamba2 state and/or MoE router not having "warmed up" enough signal
+  yet on a fresh, short sequence, causing the model to occasionally argmax
+  straight to an end-of-sequence token as its very first output. This
+  fragility exists in full-precision BF16 (rare, content-dependent, only at
+  the shortest shapes) and gets dramatically amplified by this community AWQ
+  4-bit quantization (reliable failure across a ~400x wider length range) —
+  consistent with a hybrid Mamba/MoE architecture being unusually sensitive
+  to quantization noise in exactly the marginal cases where its own
+  first-principles behavior was already fragile. Not root-caused further
+  than this (would need to inspect actual logits/hidden states at the
+  failure boundary, out of scope here) — but this is a materially different,
+  better-supported story than "broken at 32K."
+
+**This actually strengthens the case against using Granite-4.0-H-Micro in
+production as-is**, not weakens it: a real tool-calling conversation *starts*
+short and grows over many turns — it spends most of its life in exactly the
+prompt-length range (under ~12K tokens for AWQ, under ~30 tokens even for
+BF16) where this model is unreliable. The excellent 128K/91K-token numbers
+below are real and reproduced, but a model that can't reliably handle the
+early turns of the exact conversation it would eventually see at 91K tokens
+isn't usable for this repo's target use case regardless of how good it gets
+once a conversation is already enormous.
 
 ## Results: what worked
 
@@ -190,7 +237,7 @@ at the same shape. GPU KV cache: 513,117 tokens @ 32K (15.66x), 649,702 @
 Nemotron-H's own hybrid Mamba2 design (only 4 full-attention layers total per
 its model card).
 
-### Granite-4.0-H-Micro — the most interesting result of either round, with a caveat
+### Granite-4.0-H-Micro — impressive at scale, unreliable at exactly the lengths that matter first
 
 | config | shape | TTFT p50 | decode tok/s p50 | KV cache tokens @ this ctx | max concurrency |
 |---|---|---|---|---|---|
@@ -209,14 +256,16 @@ orders of magnitude beyond Qwen3.5-4B's already-large ~600K, consistent with
 state size doesn't grow with sequence length the way attention KV cache
 does).
 
-**The caveat is serious**: the identical AWQ checkpoint is almost entirely
-broken at 32K context (see Landmine 4), and even the working BF16 variant
-shows real instability at 32K under concurrent load. Until that's understood,
-**this is a "worth investigating urgently" result, not yet a safe
-recommendation** — the 128K numbers are excellent and the failures reproduce
-consistently on real (not synthetic) requests, but treating this as a
-production pick without knowing why the same model+checkpoint falls over at a
-different context length would be premature.
+**The caveat is serious, and it's not about `--max-model-len`** (see
+"Landmine 4, corrected" above for the full investigation): both AWQ and BF16
+fail unreliably on short-to-medium prompts — AWQ up to ~12,000 tokens, BF16
+occasionally even at ~20-30 tokens — **at any `--max-model-len`, including
+128K**. A real tool-calling conversation spends most of its life exactly in
+that broken range before it ever reaches 91K tokens, so **this is not yet a
+usable model for this repo's target use case**, independent of how good the
+numbers get once a conversation is already enormous. Flagging the 128K
+numbers as a genuinely exciting data point for a *fixed* future version of
+this checkpoint, not as something to build on today.
 
 ### LFM2.5-2.6B — new project-wide throughput champion at moderate context, hard-blocked at 128K
 
@@ -289,12 +338,17 @@ From `vllm serve --help=CacheConfig` / `--help=OffloadConfig` /
 
 ## Verdict
 
-No clean new champion this round — the most exciting result
-(Granite-4.0-H-Micro-AWQ @ 128K) comes with an unresolved reliability gap at
-32K that has to be understood before it can be trusted, and the most reliable
-new candidate (Nemotron-H-8B) doesn't beat round 1's Qwen3.5-4B-FP8. **Qwen3.5-4B-FP8
-remains the safe recommendation** pending further investigation into why
-Granite-4.0-H-Micro breaks at 32K.
+No new champion this round. **Qwen3.5-4B-FP8 (round 1) remains the
+recommendation.** Granite-4.0-H-Micro-AWQ's exceptional 91K-token numbers
+don't translate into a usable model — the follow-up investigation found the
+model unreliable across most of the prompt-length range a real conversation
+would actually traverse (see "Landmine 4, corrected"), not just at one
+context config. The most reliable new candidate, Nemotron-H-8B, doesn't beat
+round 1's champion either. This is a real finding worth having, though: it
+rules Granite out with much higher confidence than "seemed to work at 128K,
+didn't investigate why 32K failed" would have, and gives a concrete signal
+(short-prompt reliability) to check first on any future hybrid Mamba/MoE
+candidate before trusting its long-context numbers.
 
 `--kv-cache-dtype fp8` is an unambiguous win, though, and cheap to adopt
 immediately on the current production model regardless of which model
