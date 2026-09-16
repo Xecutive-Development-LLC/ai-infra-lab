@@ -413,15 +413,25 @@ case; unusable for this repo's actual long-tool-calling-history priority.
 - **`nvidia/Nemotron-H-8B-Reasoning-128K-FP8`** (the *official* NVIDIA FP8
   checkpoint) — fails during weight loading (`'MergedColumnParallelLinear'
   object has no attribute 'data'`), a real vLLM/checkpoint incompatibility.
-  The BF16 version of the same model works fine.
-- **`mistralai/Ministral-3-8B-Instruct-2512`** (both precisions) — fails to
-  even import (`ImportError: cannot import name 'PixtralRotaryEmbedding'`), a
-  `transformers`/vLLM version-skew bug in the vision-tower code path that
-  loads regardless of whether images are ever sent.
+  The BF16 version of the same model works fine. **Root-caused in a same-day
+  follow-up** (see `docs/MODEL_COMPARISON_ROUND2_RESULTS.md`): vLLM 0.29
+  doesn't auto-detect this checkpoint's quantization config for this
+  architecture at all, and refuses an explicit `--quantization modelopt`
+  override — genuinely not fixable from the outside this session.
+- ~~`mistralai/Ministral-3-8B-Instruct-2512` (both precisions) — fails to
+  even import (`ImportError: cannot import name 'PixtralRotaryEmbedding'`)~~
+  **Fixed in the same follow-up.** A two-symbol `transformers`/vLLM
+  version-skew bug in vLLM's vision-tower import path (loads unconditionally
+  even for text-only use) — patched with a small venv-scoped compatibility
+  shim, now loads and serves cleanly at 32K and 128K. See the full root
+  cause, the fix, and first real benchmark numbers in
+  `docs/MODEL_COMPARISON_ROUND2_RESULTS.md`'s "Follow-up (2026-09-16)"
+  section. Along the way, also found that its "FP8" and "BF16" checkpoints
+  are byte-identical (Mistral's base release already ships natively
+  mixed-precision) — there's no separate BF16 baseline for this model.
 
-None of these are model quality problems — they're all serving-stack
-compatibility gaps, most plausibly fixable on a future vLLM/transformers
-upgrade.
+Falcon-H1-7B remains unresolved; the other two are now root-caused, one
+fixed and one confirmed not fixable without a vLLM code change.
 
 ## The adoptable win: `--kv-cache-dtype fp8`
 
@@ -445,6 +455,16 @@ scale any better — that's compute-bound, not memory-bound, confirming round
 1's finding. **This is a real, low-effort software-level capacity win,
 directly answering "optimize before buying more hardware"** — worth adopting
 on whichever model ends up in production.
+
+**Doesn't generalize to every model, though.** Tried the same flag on
+Nemotron-H-8B (BF16) and Ministral-3-8B in a same-day follow-up — both fail
+outright, a genuine sm120 (RTX 5090 / consumer Blackwell) gap in FlashInfer's
+fused `xqa` decode kernel, separate from the DeepGEMM weight-FP8 bug above.
+Three different mitigations tried (a FlashInfer patch-version bump, forcing
+`VLLM_ATTENTION_BACKEND=FLASH_ATTN`, forcing `TRITON_ATTN`) all failed
+identically or were silently ignored. Check this works on any *specific*
+model before counting on it — see
+`docs/MODEL_COMPARISON_ROUND2_RESULTS.md` for the full trace.
 
 Other untested-but-real levers found in `vllm serve --help`:
 `--language-model-only` (skip loading vision/audio towers on multimodal
