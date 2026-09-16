@@ -1,8 +1,8 @@
 # AI Inference Server — Build Log & Roadmap
 
-**Stack:** RTX 5090 · Proxmox · Ubuntu 24.04 · CUDA 13.2 · PyTorch · vLLM · Qwen3-4B
+**Stack:** RTX 5090 · Proxmox · Ubuntu 24.04 · CUDA 13.2 · PyTorch · vLLM · Qwen3.5-4B-FP8
 
-**Current state:** first self-hosted LLM is running successfully through an OpenAI-compatible API.
+**Current state:** production switched to `Qwen3.5-4B-FP8` (2026-09-16) with tool-calling enabled, after round 1/2 benchmarks and a Phase E quality eval both favored it over the original `Qwen3-4B` this section documents standing up. §1-§9 below describe the original build; see §2's Current Architecture table and `README.md` for the current model.
 
 > Source of truth: this file is a Markdown transcription of `AI_Inference_Server_Build_Log_and_Roadmap.docx` (kept alongside it in this folder) for easier diffing/editing over time. Update both, or retire the `.docx` once this file is the working copy.
 
@@ -30,8 +30,8 @@
 | CUDA | Driver compatibility reports CUDA 13.2; full CUDA Toolkit 13.2 installed at `/usr/local/cuda-13.2` |
 | Python environment | Python 3.12.3 virtual environment at `~/llm-env` |
 | Inference stack | PyTorch 2.13.0+cu132 + vLLM 0.29.0 |
-| Model | `Qwen/Qwen3-4B-Instruct-2507` |
-| API | vLLM OpenAI-compatible server on `http://0.0.0.0:8000` |
+| Model | `RedHatAI/Qwen3.5-4B-FP8-dynamic` — switched 2026-09-16 from the original `Qwen/Qwen3-4B-Instruct-2507`(-FP8) after round 1/2 benchmarks and a Phase E quality eval both favored it; see `README.md`'s "Production switched" note |
+| API | vLLM OpenAI-compatible server on `http://0.0.0.0:8000`, tool-calling enabled (`--enable-auto-tool-choice --tool-call-parser qwen3_xml`) |
 | Configured context | 131,072 tokens (128K) — raised from the original 32,768; see §10 Phase A |
 
 ## 3. Work Completed
@@ -163,6 +163,7 @@ watch -n 0.5 nvidia-smi
 | `curl` reported `Could not resolve host: hcurl` | An accidental extra string was included before the valid curl invocation | Ignored the malformed fragment; the subsequent valid request succeeded |
 | VM's DHCP address changed on restart (`.81` → `.157`), breaking the assumed SSH/API endpoint | No DHCP reservation; guest used a dynamic lease that wasn't guaranteed to persist across a host/VM restart | Converted the guest to a static IP via netplan (`/etc/netplan/50-cloud-init.yaml`, `dhcp4: no`) and disabled cloud-init's network management (`/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg`) so it doesn't get silently reverted on next boot |
 | `mistralai/Ministral-3-8B-Instruct-2512` failed to import (`ImportError: cannot import name 'PixtralRotaryEmbedding'`) | `transformers`/vLLM version-skew: transformers 5.17.0 renamed/removed two symbols vLLM 0.29.0's `pixtral.py` still imports unconditionally at module load, even for text-only models | **Standing fix, still in place**: `~/llm-env/lib/python3.12/site-packages/zzz_pixtral_shim.pth` + `ai_infra_lab_pixtral_shim.py` — a venv-scoped compatibility shim. Delete both files once vLLM ships a release matching current transformers names. Full root cause in `docs/MODEL_COMPARISON_ROUND2_RESULTS.md`'s "Follow-up (2026-09-16)" section |
+| `RedHatAI/Qwen3.5-4B-FP8-dynamic` crashed on the production switch: `RuntimeError: FlashInfer backend is not available` (the same `arch=sm120` `xqa` decode-kernel gap documented in `MODEL_COMPARISON_ROUND2_RESULTS.md`) — but only with `--enable-auto-tool-choice` and `--kv-cache-dtype fp8` **combined**; each flag works fine alone on this exact model | Enabling tool-calling appears to change vLLM's internal kernel/backend selection in a way that now routes FP8-KV-cache decode through the broken FlashInfer `xqa` kernel, even on the one model where plain `--kv-cache-dtype fp8` (no tool-calling) was previously confirmed working | Shipped production without `--kv-cache-dtype fp8` — tool-calling is non-negotiable (the whole point of the switch), the KV-cache win is not. Confirmed by isolating: tool-calling alone at 128K loads and serves correctly; re-adding `--kv-cache-dtype fp8` alongside it reproduces the crash immediately. Not investigated further than this (three separate FlashInfer/sm120 mitigation attempts already failed earlier the same day for a different model combination — see the round 2 doc) |
 
 ## 8. Current Measurements and Observations
 
