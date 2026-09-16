@@ -480,3 +480,37 @@ models used text-only), `--cpu-offload-gb` (offload weights to the 62GB of
 system RAM, virtually extending VRAM at a PCIe-latency cost), and
 `--kv-offloading-size` (offload cold KV-cache blocks to CPU RAM rather than
 the whole model).
+
+---
+
+# Phase E: Snow-Zone Tool-Calling Quality Eval
+
+Everything above measures speed and capacity. This is the first eval in the
+repo that measures whether the output is *correct* — built against the real
+production tool registry (`Operator-Portal`'s `LlmTools::Registry`), not an
+invented schema. Full writeup: `docs/PHASE_E_TOOL_CALLING_EVAL_RESULTS.md`.
+Harness: `eval_tool_calling.py` / `eval_cases_snowzone.py` / `eval_tool_schema.py`.
+
+```bash
+python3 eval_tool_calling.py --model RedHatAI/Qwen3.5-4B-FP8-dynamic --repeats 3
+python3 eval_tool_calling.py --model Qwen/Qwen3-4B-Instruct-2507-FP8 --repeats 3
+```
+
+**Headline: Qwen3.5-4B-FP8 clears its first quality gate.** 36/42 overall vs.
+the incumbent's 33/42, but the safety-relevant subset is the real story — 9/12
+vs. 3/12. The incumbent fabricated a snowfall depth reading (`inches: 2.5`)
+the user never gave, on the one tool that writes to payroll-linked records,
+and separately narrated a successful report that **never actually called the
+tool**. The champion's own two "failures" were appropriate caution (re-
+querying an ambiguous zone name, checking a suspicious string against the
+real zone list before acting), not fabrication — a grading nuance worth
+fixing in the harness, but it doesn't close the qualitative gap.
+
+Two things worth remembering before reusing this harness on a different
+model: the tool-call parser is architecture-specific and picking the wrong
+one silently produces plain-text rambling instead of a `tool_calls` response
+(`qwen3_xml` for Qwen3.5-4B, `hermes` for the plain Qwen3 incumbent — same
+"wrong parser looks like a broken model" trap as everything else
+architecture-specific in this repo), and Qwen3.5-4B visibly reasons in
+`content` before every tool call (more completion tokens per call than the
+incumbent's direct calls) — a real latency/cost tradeoff, not free caution.
