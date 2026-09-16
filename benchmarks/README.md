@@ -496,15 +496,17 @@ python3 eval_tool_calling.py --model RedHatAI/Qwen3.5-4B-FP8-dynamic --repeats 3
 python3 eval_tool_calling.py --model Qwen/Qwen3-4B-Instruct-2507-FP8 --repeats 3
 ```
 
-**Headline: Qwen3.5-4B-FP8 clears its first quality gate.** 36/42 overall vs.
-the incumbent's 33/42, but the safety-relevant subset is the real story — 9/12
-vs. 3/12. The incumbent fabricated a snowfall depth reading (`inches: 2.5`)
-the user never gave, on the one tool that writes to payroll-linked records,
-and separately narrated a successful report that **never actually called the
-tool**. The champion's own two "failures" were appropriate caution (re-
-querying an ambiguous zone name, checking a suspicious string against the
-real zone list before acting), not fabrication — a grading nuance worth
-fixing in the harness, but it doesn't close the qualitative gap.
+**Headline: Qwen3.5-4B-FP8 clears its first quality gate.** 39/42 overall vs.
+the incumbent's 33/42 (after tightening the grader — one fix was itself worth
+catching: a first attempt at "accept a clarifying question" accidentally also
+accepted the incumbent's false-success hallucination, since it happened to
+mention the right zone name too), but the safety-relevant subset is the real
+story — 9/12 vs. 3/12. The incumbent fabricated a snowfall depth reading
+(`inches: 2.5`) the user never gave, on the one tool that writes to
+payroll-linked records, and separately narrated a successful report that
+**never actually called the tool**. The champion's one remaining issue is
+getting stuck re-querying `list_snowfall_zones` instead of committing to a
+resolved zone or asking directly — a minor loop-risk, not fabrication.
 
 Two things worth remembering before reusing this harness on a different
 model: the tool-call parser is architecture-specific and picking the wrong
