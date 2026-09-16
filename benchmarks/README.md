@@ -456,14 +456,22 @@ scale any better — that's compute-bound, not memory-bound, confirming round
 directly answering "optimize before buying more hardware"** — worth adopting
 on whichever model ends up in production.
 
-**Doesn't generalize to every model, though.** Tried the same flag on
-Nemotron-H-8B (BF16) and Ministral-3-8B in a same-day follow-up — both fail
-outright, a genuine sm120 (RTX 5090 / consumer Blackwell) gap in FlashInfer's
-fused `xqa` decode kernel, separate from the DeepGEMM weight-FP8 bug above.
-Three different mitigations tried (a FlashInfer patch-version bump, forcing
+**Doesn't generalize to every model, though — and that includes the
+currently-deployed one.** Tried the same flag on Nemotron-H-8B (BF16) and
+Ministral-3-8B in a same-day follow-up — both fail outright, a genuine sm120
+(RTX 5090 / consumer Blackwell) gap in FlashInfer's fused `xqa` decode
+kernel, separate from the DeepGEMM weight-FP8 bug above. Three different
+mitigations tried (a FlashInfer patch-version bump, forcing
 `VLLM_ATTENTION_BACKEND=FLASH_ATTN`, forcing `TRITON_ATTN`) all failed
-identically or were silently ignored. Check this works on any *specific*
-model before counting on it — see
+identically or were silently ignored. **Then tested it against the actual
+production model** (`Qwen/Qwen3-4B-Instruct-2507-FP8`) and it fails there
+too, identical signature — 3 of 4 architectures tested this session, only
+Qwen3.5-4B-FP8 works. Confirmed Qwen3.5-4B is a genuinely hybrid
+linear+full-attention architecture, but that alone doesn't explain it since
+Nemotron-H (also hybrid) fails the same way — not fully root-caused.
+**Practical effect: this lever can't be "adopted on production" as an
+independent step; it's coupled to switching production to Qwen3.5-4B-FP8
+first**, which is itself gated on Phase E quality evals. See
 `docs/MODEL_COMPARISON_ROUND2_RESULTS.md` for the full trace.
 
 Other untested-but-real levers found in `vllm serve --help`:
