@@ -220,6 +220,171 @@ early turns of the exact conversation it would eventually see at 91K tokens
 isn't usable for this repo's target use case regardless of how good it gets
 once a conversation is already enormous.
 
+## Follow-up (2026-09-16): root-causing Landmines 2 and 3
+
+Went back to actually root-cause (not just document) Nemotron-H's FP8 loader
+crash and Ministral-3-8B's import failure, since both looked like they might
+be fixable rather than fundamental. One fixed, one didn't — and a third,
+unrelated finding fell out of testing `--kv-cache-dtype fp8` on both.
+
+### Ministral-3-8B: fixed. `Mistral3ForConditionalGeneration` now loads and serves.
+
+Root cause, precisely: vLLM 0.29.0's `pixtral.py` (imported unconditionally
+by the Mistral3 vision-tower code path, even for text-only use) imports two
+symbols from `transformers.models.pixtral.modeling_pixtral` that transformers
+5.17.0 no longer provides under those names:
+
+1. **`PixtralRotaryEmbedding`** — renamed to `PixtralVisionRotaryEmbedding`.
+   Verified identical `__init__(config, device)` signature and `forward()`
+   body, so this is a pure rename, not a behavior change.
+2. **`position_ids_in_meshgrid`** — deleted outright (confirmed absent
+   anywhere in the transformers 5.17.0 source tree, not moved/inlined). Only
+   used inside `PixtralVisionModel.forward()` when actually encoding images —
+   unreachable for text-only chat completions, but still imported eagerly at
+   module load time, so it blocks loading regardless.
+
+Both packages are already at their latest PyPI release (vllm 0.29.0 is
+`LATEST`, transformers 5.17.0 is `LATEST`), confirmed via `pip index
+versions` on the live install — so this is a genuine unpatched version-skew
+bug between the two projects, not something an upgrade fixes.
+
+**Fix applied**: a two-file, venv-scoped shim —
+`~/llm-env/lib/python3.12/site-packages/zzz_pixtral_shim.pth` (a one-line
+`.pth` loader; `sitecustomize.py` was tried first but is shadowed by
+Ubuntu's own `/usr/lib/python3.12/sitecustomize.py`, which loads first on
+`sys.path`) plus `ai_infra_lab_pixtral_shim.py`, which on import:
+- aliases `PixtralRotaryEmbedding = PixtralVisionRotaryEmbedding`, and
+- re-adds `position_ids_in_meshgrid`, sourced verbatim from
+  `transformers==4.57.6`'s `modeling_pixtral.py` (downloaded from PyPI and
+  diffed by hand for this fix, not reconstructed from memory) — the last
+  release still carrying it.
+
+This is now a **standing modification to the production venv**, not a
+benchmark-time-only flag — it stays in effect for every future `vllm serve`
+invocation until vLLM ships a release whose `pixtral.py` matches current
+transformers names, at which point both shim files should be deleted. Verified
+`import vllm.model_executor.models.pixtral` succeeds cleanly with the shim in
+place, and the model loads, serves, and answers real requests at both 32K and
+128K (see results below).
+
+### A second finding, discovered while benchmarking Ministral: the "FP8" checkpoint isn't a separate quantization
+
+`unsloth/Ministral-3-8B-Instruct-2512-FP8` and `mistralai/Ministral-3-8B-Instruct-2512`
+(catalogued in round 2 as the FP8 and BF16 variants respectively) turned out
+to be **the same underlying weights**. Checked directly by reading the raw
+safetensors headers on both checkpoints: every shard is byte-identical in
+size (4,983,094,790 / 4,992,892,530 / 444,667,504 bytes, exactly, across all
+3 shards), and the same tensor key
+(`language_model.model.layers.0.mlp.down_proj.weight`) has the **identical
+dtype (`F8_E4M3`) and identical `data_offsets`** in both files. Mistral's own
+"base" release already ships natively mixed-precision — 91 tensors
+pre-quantized to FP8 (attention/MLP linear weights), 212 left at BF16
+(norms, embeddings, vision tower, `lm_head`) — confirmed via each tensor's
+declared dtype in the safetensors header. `unsloth`'s "-FP8" repo is a mirror
+of the same files, not a distinct further-quantized variant.
+
+This fully explains why the "BF16 vs FP8" baseline numbers below are nearly
+identical (154.3 vs 154.7 decode tok/s at `short_short`, 10.25 vs 10.28 GiB
+consumed weight memory): **both benchmark runs loaded the same weights.**
+There is no actual BF16 baseline for this model in this repo — only this one
+native mixed-precision checkpoint, tested under two names. Worth remembering
+before citing "Ministral-3-8B BF16" as a quality/speed baseline anywhere.
+
+### Nemotron-H-8B: root-caused, not fixed. A vLLM quantization-auto-detection gap.
+
+The official `nvidia/Nemotron-H-8B-Reasoning-128K-FP8` checkpoint's
+`hf_quant_config.json` / `config.json` declare real, static-activation FP8
+quantization for every linear layer except each Mamba layer's `conv1d`
+(explicitly listed in `ignore`/`exclude_modules` — `in_proj` is **not**
+excluded, so it's supposed to be quantized). Instrumented vLLM's weight
+loader with a temporary diagnostic print (`linear.py`, reverted immediately
+after, confirmed byte-identical to the original via `diff`) and found the
+crash happens on the checkpoint's `in_proj.input_scale` tensor: vLLM built
+that Mamba merged-linear layer with **no `input_scale` parameter at all**, so
+the generic `getattr(submodule, attr, self)` fallback in `linear.py`
+(`load_weights`) silently returns the *layer module itself* when the
+attribute doesn't exist, and calling `weight_loader` on that gives the
+already-documented `'MergedColumnParallelLinear' object has no attribute
+'data'`.
+
+Chased one level further: forcing `--quantization modelopt` explicitly (the
+dedicated vLLM quant method for this checkpoint's NVIDIA ModelOpt-produced
+`hf_quant_config.json` format) fails immediately with a clear `pydantic`
+validation error —
+
+```
+Quantization method specified in the model config (None) does not match
+the quantization method specified in the `quantization` argument (modelopt).
+```
+
+— meaning **vLLM 0.29.0's auto-detection finds no quantization config at all
+for this checkpoint on the `NemotronHForCausalLM` architecture**, and vLLM's
+own config validation refuses to let an explicit `--quantization` override a
+`None` auto-detection result. With no quant_config applied anywhere, every
+layer (including `in_proj`) is built as plain unquantized — which is exactly
+consistent with the missing `input_scale` parameter above. This is a real
+gap in vLLM's quant-config auto-detection for this specific
+architecture/checkpoint-format combination, not a flag or environment
+variable away from working — there's no supported way to force it from the
+outside. Deliberately did **not** patch around this by fabricating or
+dropping the mismatched scale tensor: doing so would silently change the
+model's numerics on a model whose quality was never evaluated in the first
+place, exactly the kind of shortcut this repo's own methodology section
+warns about. Left the installed vLLM untouched; the BF16 checkpoint (already
+confirmed working, see Results below) remains the only usable path for this
+model.
+
+### A third finding: `--kv-cache-dtype fp8` is blocked on this GPU for both architectures, by a different bug than the weight-FP8 one
+
+Tried applying the proven `--kv-cache-dtype fp8` lever (real win for
+Qwen3.5-4B-FP8, see below) to Nemotron-H-8B (BF16) and Ministral-3-8B, since
+neither has a working weight-FP8 path. Both fail identically, at request
+time (Ministral) or KV-cache-profiling time (Nemotron-H after a FlashInfer
+version bump — see below):
+
+```
+File ".../vllm/v1/attention/backends/flashinfer.py", line 2403, in forward
+    flashinfer_xqa_batch_decode_with_kv_cache(...)
+File ".../vllm/utils/flashinfer.py", line 140, in _missing
+RuntimeError: FlashInfer backend is not available. Please install the
+package to enable FlashInfer kernels: ...
+```
+
+`flashinfer-python` **is** installed (0.6.18) and imports fine — the
+"backend not available" message is a generic placeholder vLLM raises when a
+*specific* FlashInfer kernel entry point resolves to a stub, not when the
+package itself is missing. Here, it's the fused `xqa` batch-decode kernel
+vLLM selects specifically for FP8 KV-cache on this GPU
+(`arch=sm120` — RTX 5090 / consumer Blackwell, logged explicitly by vLLM at
+startup) that isn't available in the installed FlashInfer build. Ruled out
+three mitigations directly, each a clean retry changing exactly one thing:
+
+1. **Patch-version bump** (`flashinfer-python` 0.6.18 → 0.6.18.post1, the
+   only newer version on PyPI) — same failure, one step further into
+   startup (fails during KV-cache profiling instead of the first request),
+   suggesting the newer version changed something but didn't add the
+   missing sm120 kernel. Reverted back to 0.6.18 (the vLLM-pinned version)
+   immediately after ruling this out, to avoid leaving the shared
+   production venv off-spec.
+2. **`VLLM_ATTENTION_BACKEND=FLASH_ATTN`** — vLLM logged
+   `Using FLASHINFER attention backend out of potential backends:
+   ['FLASHINFER', 'TRITON_ATTN']` — FLASH_ATTN isn't even offered as an
+   option for this architecture/GPU, so the override was silently ignored.
+3. **`VLLM_ATTENTION_BACKEND=TRITON_ATTN`** — same backend list logged,
+   same FlashInfer selection, identical crash. The FP8-KV-cache code path
+   appears hard-routed to FlashInfer's `xqa` kernel regardless of the
+   general attention-backend setting for this GPU/architecture combination.
+
+**Conclusion: this is a distinct, separate consumer-Blackwell (sm120)
+support gap from the already-documented DeepGEMM weight-FP8 bug
+(vllm-project/vllm#51884)** — same root category (fast-moving CUDA kernel
+libraries lagging on brand-new consumer hardware), different specific
+kernel, different workaround needed (none found this session). Whatever
+makes `--kv-cache-dtype fp8` work cleanly on Qwen3.5-4B-FP8 is architecture/
+attention-config-specific and doesn't generalize to Nemotron-H's hybrid
+Mamba2 attention layers or Ministral-3-8B's — worth checking on any future
+candidate before assuming this lever is a free VRAM win everywhere.
+
 ## Results: what worked
 
 ### Nemotron-H-8B-Reasoning-128K (BF16 only — FP8 broken, see above)
@@ -236,6 +401,37 @@ at the same shape. GPU KV cache: 513,117 tokens @ 32K (15.66x), 649,702 @
 128K (4.96x) — similar order of magnitude to Qwen3.5-4B, consistent with
 Nemotron-H's own hybrid Mamba2 design (only 4 full-attention layers total per
 its model card).
+
+### Ministral-3-8B-Instruct-2512 — now loads, thanks to the pixtral shim above
+
+First real numbers for this model, at both context sizes. Reminder: "bf16"
+and "fp8" folders in `benchmarks/results/ministral-3-8b/` contain the same
+underlying weights (see the finding above) — one results table, not two.
+
+| shape | prompt tok | TTFT p50 | decode tok/s p50 |
+|---|---|---|---|
+| short_short (32K) | 29 | 0.020s | 154.7 |
+| long_short (32K) | 3,468 | 0.179s | 147.5 |
+| vlong_short (32K) | 9,371 | 0.530s | 134.8 |
+| xlong_short (128K) | 93,159 | 17.747s | 68.6 |
+
+Beats Nemotron-H-8B at every shape except `xlong_short`, where it lands right
+next to it (68.6 vs 97.0 tok/s — Nemotron-H wins here) — but still well
+behind Qwen3.5-4B-FP8's 6.3s TTFT / 161.1 tok/s at the same shape. GPU KV
+cache: 137,408 tokens @ 32K (4.19x), 137,168 tokens @ 128K (1.05x) — a
+conventional dense-transformer profile (no Mamba/linear-attention layers to
+shrink KV-cache cost the way Nemotron-H's hybrid design does), and the
+smallest KV-cache headroom of any round-2 candidate at 128K.
+
+Concurrency (32K): `short_long` scales cleanly to 11,560 tok/s peak median at
+concurrency 256, zero failures at any level tested — essentially identical
+scaling to Qwen3.5-4B-FP8's own `short_long` sweep. `vlong_short`
+(~9.4K-token prompts, closer to real agentic-conversation traffic) plateaus
+at concurrency 8, ~115 tok/s aggregate — a real ceiling, but the model never
+fails a request outright at any concurrency level tested up to 64. At 128K,
+same story as every other model this size class: concurrency 2 barely beats
+concurrency 1 (4.2 vs 4.1 tok/s aggregate) — single-request-only territory,
+as expected.
 
 ### Granite-4.0-H-Micro — impressive at scale, unreliable at exactly the lengths that matter first
 
@@ -338,15 +534,22 @@ From `vllm serve --help=CacheConfig` / `--help=OffloadConfig` /
 
 ## Verdict
 
-No new champion this round. **Qwen3.5-4B-FP8 (round 1) remains the
-recommendation.** Granite-4.0-H-Micro-AWQ's exceptional 91K-token numbers
-don't translate into a usable model — the follow-up investigation found the
-model unreliable across most of the prompt-length range a real conversation
-would actually traverse (see "Landmine 4, corrected"), not just at one
-context config. The most reliable new candidate, Nemotron-H-8B, doesn't beat
-round 1's champion either. This is a real finding worth having, though: it
-rules Granite out with much higher confidence than "seemed to work at 128K,
-didn't investigate why 32K failed" would have, and gives a concrete signal
+Still no new champion, including after the follow-up. **Qwen3.5-4B-FP8
+(round 1) remains the recommendation.** Granite-4.0-H-Micro-AWQ's exceptional
+91K-token numbers don't translate into a usable model — the follow-up
+investigation found the model unreliable across most of the prompt-length
+range a real conversation would actually traverse (see "Landmine 4,
+corrected"), not just at one context config. Nemotron-H-8B (BF16) and
+Ministral-3-8B (now that it loads) are both solidly *usable* — no
+reliability landmines like Granite's, real working numbers at both context
+sizes — but both trail Qwen3.5-4B-FP8 at every shape tested, most visibly at
+128K (68.6-97.0 tok/s decode vs. 161.1). Nemotron-H's official FP8 checkpoint
+and `--kv-cache-dtype fp8` on either model would have narrowed or closed that
+gap, but both are blocked by real, root-caused vLLM/FlashInfer support gaps
+on this specific GPU (see the follow-up section above) — not weaknesses of
+the models themselves. This is a real finding worth having, though: it rules
+Granite out with much higher confidence than "seemed to work at 128K, didn't
+investigate why 32K failed" would have, and gives a concrete signal
 (short-prompt reliability) to check first on any future hybrid Mamba/MoE
 candidate before trusting its long-context numbers.
 

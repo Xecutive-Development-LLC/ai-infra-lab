@@ -162,6 +162,7 @@ watch -n 0.5 nvidia-smi
 | 262K context failed | KV-cache requirement was about 36 GiB, larger than the ~18.96 GiB vLLM had available for KV cache | Reduced `--max-model-len` to 32768 |
 | `curl` reported `Could not resolve host: hcurl` | An accidental extra string was included before the valid curl invocation | Ignored the malformed fragment; the subsequent valid request succeeded |
 | VM's DHCP address changed on restart (`.81` → `.157`), breaking the assumed SSH/API endpoint | No DHCP reservation; guest used a dynamic lease that wasn't guaranteed to persist across a host/VM restart | Converted the guest to a static IP via netplan (`/etc/netplan/50-cloud-init.yaml`, `dhcp4: no`) and disabled cloud-init's network management (`/etc/cloud/cloud.cfg.d/99-disable-network-config.cfg`) so it doesn't get silently reverted on next boot |
+| `mistralai/Ministral-3-8B-Instruct-2512` failed to import (`ImportError: cannot import name 'PixtralRotaryEmbedding'`) | `transformers`/vLLM version-skew: transformers 5.17.0 renamed/removed two symbols vLLM 0.29.0's `pixtral.py` still imports unconditionally at module load, even for text-only models | **Standing fix, still in place**: `~/llm-env/lib/python3.12/site-packages/zzz_pixtral_shim.pth` + `ai_infra_lab_pixtral_shim.py` — a venv-scoped compatibility shim. Delete both files once vLLM ships a release matching current transformers names. Full root cause in `docs/MODEL_COMPARISON_ROUND2_RESULTS.md`'s "Follow-up (2026-09-16)" section |
 
 ## 8. Current Measurements and Observations
 
