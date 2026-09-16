@@ -385,6 +385,27 @@ attention-config-specific and doesn't generalize to Nemotron-H's hybrid
 Mamba2 attention layers or Ministral-3-8B's — worth checking on any future
 candidate before assuming this lever is a free VRAM win everywhere.
 
+**Update, same day, after testing the actual production model**: this is
+worse than "doesn't generalize to two other models" — it also **fails on
+the currently-deployed incumbent**, `Qwen/Qwen3-4B-Instruct-2507-FP8`,
+identical crash, identical `arch=sm120` / FlashInfer `xqa` signature. That's
+now 3 of 4 architectures tested this session, with **only Qwen3.5-4B-FP8
+working**. Checked what's actually different about it: its config confirms
+it's a genuinely hybrid architecture (`Qwen3_5ForConditionalGeneration`,
+`layer_types` mostly `linear_attention` with periodic `full_attention`,
+`head_dim=256`) — matching round 1's original speculation. But hybrid-ness
+alone doesn't explain the difference, since **Nemotron-H is also hybrid**
+(Mamba2 + full attention) and still fails identically. Something more
+specific to Qwen3.5-4B's exact combination (quantization format, head_dim,
+or how few full-attention layers there are interacting with vLLM's kernel
+selection) is responsible — not root-caused further this session.
+
+**Practical consequence for the roadmap**: `--kv-cache-dtype fp8` cannot
+currently be "adopted on production" as a standalone step — it only works
+on Qwen3.5-4B-FP8, which production hasn't switched to yet (still gated on
+Phase E quality evals). The two items are coupled, not independent, contrary
+to how they were originally listed as parallel options.
+
 ## Results: what worked
 
 ### Nemotron-H-8B-Reasoning-128K (BF16 only — FP8 broken, see above)
