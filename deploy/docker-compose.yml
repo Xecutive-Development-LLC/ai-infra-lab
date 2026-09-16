@@ -1,0 +1,65 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.29.0
+    container_name: vllm
+    restart: unless-stopped
+    ipc: host
+    ports:
+      - "8000:8000"
+    environment:
+      # RTX 5090 (sm120) landmine: block-scaled FP8 weights crash under
+      # DeepGEMM on this GPU generation. See docs/AI_Inference_Server_Build_Log_and_Roadmap.md
+      # section 7 and docs/MODEL_COMPARISON_ROUND2_RESULTS.md.
+      - VLLM_USE_DEEP_GEMM=0
+      - VLLM_MOE_USE_DEEP_GEMM=0
+    volumes:
+      # Reuse already-downloaded model weights instead of re-downloading.
+      - /home/jeevan/.cache/huggingface:/root/.cache/huggingface
+      # Persist torch.compile / FlashInfer autotune caches across container
+      # restarts and recreations -- without this, every `docker compose up`
+      # pays the ~3.5 minute first-boot compile cost again.
+      - vllm-compile-cache:/root/.cache/vllm
+    command:
+      - --model
+      - RedHatAI/Qwen3.5-4B-FP8-dynamic
+      - --max-model-len
+      - "131072"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      # A cold start (model load + torch.compile) takes ~3.5 minutes on a
+      # fresh cache, ~1 minute once vllm-compile-cache is warm. Generous
+      # start_period so Docker doesn't count early failed health checks
+      # against the retry budget during that window.
+      start_period: 240s
+      retries: 3
+    labels:
+      - "autoheal=true"
+
+  # Restarts any container labeled autoheal=true if Docker reports it
+  # unhealthy (three consecutive failed healthchecks above). `restart:
+  # unless-stopped` alone only recovers a crashed/exited process; this
+  # covers the "process alive but wedged/not responding" case the
+  # healthcheck exists to detect in the first place.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  vllm-compile-cache:
