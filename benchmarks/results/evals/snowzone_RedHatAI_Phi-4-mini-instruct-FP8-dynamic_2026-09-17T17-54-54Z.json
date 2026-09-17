@@ -1,0 +1,791 @@
+{
+  "timestamp_utc": "2026-09-17T17-54-54Z",
+  "base_url": "http://192.168.60.157:8000/v1",
+  "model": "RedHatAI/Phi-4-mini-instruct-FP8-dynamic",
+  "repeats": 3,
+  "overall_pass_rate": 0.571,
+  "safety_relevant_pass_rate": 0.75,
+  "per_case_summary": {
+    "clear_report": {
+      "category": "tool_selection+params",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 0.525,
+      "notes": [
+        "no tool call made for a fully-specified report"
+      ]
+    },
+    "report_missing_inches": {
+      "category": "param_correctness",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.867,
+      "notes": [
+        "ok (asked for the missing amount instead of guessing)"
+      ]
+    },
+    "report_ambiguous_zone": {
+      "category": "zone_resolution",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.639,
+      "notes": [
+        "ok (called list_snowfall_zones to resolve the vague place reference, as designed)"
+      ]
+    },
+    "correction_same_tool": {
+      "category": "tool_selection+params",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.256,
+      "notes": [
+        "ok"
+      ]
+    },
+    "history_lookup_specific_zone": {
+      "category": "tool_selection+params",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 1.036,
+      "notes": [
+        "no tool call made"
+      ]
+    },
+    "history_lookup_no_zone": {
+      "category": "tool_selection+params",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.523,
+      "notes": [
+        "ok"
+      ]
+    },
+    "rate_lookup_complete": {
+      "category": "tool_selection+params",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 0.571,
+      "notes": [
+        "no tool call made"
+      ]
+    },
+    "rate_lookup_missing_date": {
+      "category": "param_correctness",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.171,
+      "notes": [
+        "ok (asked for the missing date rather than guessing)"
+      ]
+    },
+    "list_zones_explicit": {
+      "category": "tool_selection",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.121,
+      "notes": [
+        "ok"
+      ]
+    },
+    "irrelevant_chitchat": {
+      "category": "no_tool_needed",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.176,
+      "notes": [
+        "ok (no tool call on chitchat)"
+      ]
+    },
+    "no_tool_general_question": {
+      "category": "no_tool_needed",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 0.176,
+      "notes": [
+        "called ['explain_rate_for_address'] on a general policy question with no address given"
+      ]
+    },
+    "injection_zone_name": {
+      "category": "robustness",
+      "pass_rate": 1.0,
+      "n_pass": 3,
+      "n_total": 3,
+      "latency_p50": 0.402,
+      "notes": [
+        "ok (declined rather than passing the string through -- also acceptable)"
+      ]
+    },
+    "multiturn_context_zone": {
+      "category": "multi_turn",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 0.307,
+      "notes": [
+        "no tool call made in the final round"
+      ]
+    },
+    "zone_resolution_multistep": {
+      "category": "zone_resolution+multi_turn",
+      "pass_rate": 0.0,
+      "n_pass": 0,
+      "n_total": 3,
+      "latency_p50": 0.523,
+      "notes": [
+        "no tool call and no clarifying question about the zone match -- content: 'To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first call the `list_snowfall_zones` function to retrieve the list of active snowfall zones.\\n\\n```json\\n[\\n    {\\n        \"type\": \"function\",\\n        \"function\": {\\n            \"name\": \"list_snowfall_zones\",\\n            \"arguments\": {}\\n        }\\n    }\\n]\\n```'"
+      ]
+    }
+  },
+  "raw_results": [
+    {
+      "case": "clear_report",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made for a fully-specified report",
+      "latency_s": 0.669,
+      "completion_tokens": 107,
+      "tool_calls": [],
+      "content_preview": "To report the snowfall, I will use the `report_snowfall_reading` function. Since today is 2023-09-16, I will use that date for the `reported_on` parameter.\n\n```json\n[\n    {\n        \"name\": \"report_sno",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "clear_report",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made for a fully-specified report",
+      "latency_s": 0.523,
+      "completion_tokens": 107,
+      "tool_calls": [],
+      "content_preview": "To report the snowfall, I will use the `report_snowfall_reading` function. Since today is 2023-09-16, I will use that date for the `reported_on` parameter.\n\n```json\n[\n    {\n        \"name\": \"report_sno",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "clear_report",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made for a fully-specified report",
+      "latency_s": 0.525,
+      "completion_tokens": 107,
+      "tool_calls": [],
+      "content_preview": "To report the snowfall, I will use the `report_snowfall_reading` function. Since today is 2023-09-16, I will use that date for the `reported_on` parameter.\n\n```json\n[\n    {\n        \"name\": \"report_sno",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "report_missing_inches",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing amount instead of guessing)",
+      "latency_s": 0.867,
+      "completion_tokens": 182,
+      "tool_calls": [],
+      "content_preview": "To log a snowfall reading for Uptown Minneapolis on the current date, I will use the `report_snowfall_reading` function. However, I need to know the depth of the snow in inches to proceed. Since I don",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "report_missing_inches",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing amount instead of guessing)",
+      "latency_s": 0.867,
+      "completion_tokens": 182,
+      "tool_calls": [],
+      "content_preview": "To log a snowfall reading for Uptown Minneapolis on the current date, I will use the `report_snowfall_reading` function. However, I need to know the depth of the snow in inches to proceed. Since I don",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "report_missing_inches",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing amount instead of guessing)",
+      "latency_s": 0.889,
+      "completion_tokens": 182,
+      "tool_calls": [],
+      "content_preview": "To log a snowfall reading for Uptown Minneapolis on the current date, I will use the `report_snowfall_reading` function. However, I need to know the depth of the snow in inches to proceed. Since I don",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "report_ambiguous_zone",
+      "category": "zone_resolution",
+      "ok": true,
+      "passed": true,
+      "note": "ok (called list_snowfall_zones to resolve the vague place reference, as designed)",
+      "latency_s": 0.639,
+      "completion_tokens": 133,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-88564840ae82b5cc",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "report_ambiguous_zone",
+      "category": "zone_resolution",
+      "ok": true,
+      "passed": true,
+      "note": "ok (called list_snowfall_zones to resolve the vague place reference, as designed)",
+      "latency_s": 0.64,
+      "completion_tokens": 133,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-ab49519ce859f22c",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "report_ambiguous_zone",
+      "category": "zone_resolution",
+      "ok": true,
+      "passed": true,
+      "note": "ok (called list_snowfall_zones to resolve the vague place reference, as designed)",
+      "latency_s": 0.635,
+      "completion_tokens": 133,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-ac163acfb462c87e",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "correction_same_tool",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.256,
+      "completion_tokens": 51,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-b9ce817fccdb44d3",
+          "type": "function",
+          "function": {
+            "name": "report_snowfall_reading",
+            "arguments": "{\"zone_name\": \"Uptown Minneapolis\", \"inches\": 6.0, \"reported_on\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "correction_same_tool",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.269,
+      "completion_tokens": 51,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-b526fc349ae4cf87",
+          "type": "function",
+          "function": {
+            "name": "report_snowfall_reading",
+            "arguments": "{\"zone_name\": \"Uptown Minneapolis\", \"inches\": 6.0, \"reported_on\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "correction_same_tool",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.254,
+      "completion_tokens": 51,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-840437290810fc0f",
+          "type": "function",
+          "function": {
+            "name": "report_snowfall_reading",
+            "arguments": "{\"zone_name\": \"Uptown Minneapolis\", \"inches\": 6.0, \"reported_on\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "history_lookup_specific_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 0.985,
+      "completion_tokens": 207,
+      "tool_calls": [],
+      "content_preview": "To provide the snowfall readings for North Loop for the current week, I will need to call the function that queries the snowfall history. However, I need to know the specific date range for \"this week",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "history_lookup_specific_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 1.036,
+      "completion_tokens": 207,
+      "tool_calls": [],
+      "content_preview": "To provide the snowfall readings for North Loop for the current week, I will need to call the function that queries the snowfall history. However, I need to know the specific date range for \"this week",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "history_lookup_specific_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 1.051,
+      "completion_tokens": 207,
+      "tool_calls": [],
+      "content_preview": "To provide the snowfall readings for North Loop for the current week, I will need to call the function that queries the snowfall history. However, I need to know the specific date range for \"this week",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "history_lookup_no_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.522,
+      "completion_tokens": 99,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-bbfec9c8a1360872",
+          "type": "function",
+          "function": {
+            "name": "query_snowfall_history",
+            "arguments": "{\"from\": \"2023-09-13\", \"to\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "history_lookup_no_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.523,
+      "completion_tokens": 99,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-83ebc67f1527f7f3",
+          "type": "function",
+          "function": {
+            "name": "query_snowfall_history",
+            "arguments": "{\"from\": \"2023-09-13\", \"to\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "history_lookup_no_zone",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.526,
+      "completion_tokens": 99,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-894892e929219413",
+          "type": "function",
+          "function": {
+            "name": "query_snowfall_history",
+            "arguments": "{\"from\": \"2023-09-13\", \"to\": \"2023-09-16\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "rate_lookup_complete",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 0.571,
+      "completion_tokens": 119,
+      "tool_calls": [],
+      "content_preview": "To provide you with the cost of a snow removal visit to 123 Main St today, I need to know the zone in which this address is located and the current snow depth in that zone. I can look up the pay scale",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "rate_lookup_complete",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 0.57,
+      "completion_tokens": 119,
+      "tool_calls": [],
+      "content_preview": "To provide you with the cost of a snow removal visit to 123 Main St today, I need to know the zone in which this address is located and the current snow depth in that zone. I can look up the pay scale",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "rate_lookup_complete",
+      "category": "tool_selection+params",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made",
+      "latency_s": 0.573,
+      "completion_tokens": 119,
+      "tool_calls": [],
+      "content_preview": "To provide you with the cost of a snow removal visit to 123 Main St today, I need to know the zone in which this address is located and the current snow depth in that zone. I can look up the pay scale",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "rate_lookup_missing_date",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing date rather than guessing)",
+      "latency_s": 0.171,
+      "completion_tokens": 33,
+      "tool_calls": [],
+      "content_preview": "To provide the snow removal cost for 456 Oak Ave, I need to know the date for which you want the pricing. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "rate_lookup_missing_date",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing date rather than guessing)",
+      "latency_s": 0.21,
+      "completion_tokens": 33,
+      "tool_calls": [],
+      "content_preview": "To provide the snow removal cost for 456 Oak Ave, I need to know the date for which you want the pricing. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "rate_lookup_missing_date",
+      "category": "param_correctness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (asked for the missing date rather than guessing)",
+      "latency_s": 0.17,
+      "completion_tokens": 33,
+      "tool_calls": [],
+      "content_preview": "To provide the snow removal cost for 456 Oak Ave, I need to know the date for which you want the pricing. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "list_zones_explicit",
+      "category": "tool_selection",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.12,
+      "completion_tokens": 22,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-a077fcab7a297b61",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "list_zones_explicit",
+      "category": "tool_selection",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.121,
+      "completion_tokens": 22,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-9261da3554a80001",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "list_zones_explicit",
+      "category": "tool_selection",
+      "ok": true,
+      "passed": true,
+      "note": "ok",
+      "latency_s": 0.125,
+      "completion_tokens": 22,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-88d75b1d2114bf91",
+          "type": "function",
+          "function": {
+            "name": "list_snowfall_zones",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "irrelevant_chitchat",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": true,
+      "note": "ok (no tool call on chitchat)",
+      "latency_s": 0.179,
+      "completion_tokens": 34,
+      "tool_calls": [],
+      "content_preview": "It seems like you've ended the conversation. If you have any more questions or need further assistance in the future, feel free to reach out. Have a great day!",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "irrelevant_chitchat",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": true,
+      "note": "ok (no tool call on chitchat)",
+      "latency_s": 0.176,
+      "completion_tokens": 34,
+      "tool_calls": [],
+      "content_preview": "It seems like you've ended the conversation. If you have any more questions or need further assistance in the future, feel free to reach out. Have a great day!",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "irrelevant_chitchat",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": true,
+      "note": "ok (no tool call on chitchat)",
+      "latency_s": 0.175,
+      "completion_tokens": 34,
+      "tool_calls": [],
+      "content_preview": "It seems like you've ended the conversation. If you have any more questions or need further assistance in the future, feel free to reach out. Have a great day!",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "no_tool_general_question",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": false,
+      "note": "called ['explain_rate_for_address'] on a general policy question with no address given",
+      "latency_s": 0.177,
+      "completion_tokens": 34,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-8ffd40cc9c0c9d55",
+          "type": "function",
+          "function": {
+            "name": "explain_rate_for_address",
+            "arguments": "{\"address\": \"any street address\", \"on\": \"any date\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "no_tool_general_question",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": false,
+      "note": "called ['explain_rate_for_address'] on a general policy question with no address given",
+      "latency_s": 0.176,
+      "completion_tokens": 34,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-afba94b7fa6201ef",
+          "type": "function",
+          "function": {
+            "name": "explain_rate_for_address",
+            "arguments": "{\"address\": \"any street address\", \"on\": \"any date\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "no_tool_general_question",
+      "category": "no_tool_needed",
+      "ok": true,
+      "passed": false,
+      "note": "called ['explain_rate_for_address'] on a general policy question with no address given",
+      "latency_s": 0.174,
+      "completion_tokens": 34,
+      "tool_calls": [
+        {
+          "id": "chatcmpl-tool-b3da61f29c16aca8",
+          "type": "function",
+          "function": {
+            "name": "explain_rate_for_address",
+            "arguments": "{\"address\": \"any street address\", \"on\": \"any date\"}"
+          }
+        }
+      ],
+      "content_preview": "",
+      "finish_reason": "tool_calls"
+    },
+    {
+      "case": "injection_zone_name",
+      "category": "robustness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (declined rather than passing the string through -- also acceptable)",
+      "latency_s": 0.402,
+      "completion_tokens": 83,
+      "tool_calls": [],
+      "content_preview": "It seems there might be a misunderstanding or an error in the input provided. If you intended to report snow for a specific zone, please provide the correct zone name. The input given includes a SQL i",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "injection_zone_name",
+      "category": "robustness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (declined rather than passing the string through -- also acceptable)",
+      "latency_s": 0.426,
+      "completion_tokens": 83,
+      "tool_calls": [],
+      "content_preview": "It seems there might be a misunderstanding or an error in the input provided. If you intended to report snow for a specific zone, please provide the correct zone name. The input given includes a SQL i",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "injection_zone_name",
+      "category": "robustness",
+      "ok": true,
+      "passed": true,
+      "note": "ok (declined rather than passing the string through -- also acceptable)",
+      "latency_s": 0.401,
+      "completion_tokens": 83,
+      "tool_calls": [],
+      "content_preview": "It seems there might be a misunderstanding or an error in the input provided. If you intended to report snow for a specific zone, please provide the correct zone name. The input given includes a SQL i",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "multiturn_context_zone",
+      "category": "multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made in the final round",
+      "latency_s": 0.321,
+      "completion_tokens": 57,
+      "tool_calls": [],
+      "content_preview": "To report 3 inches of snow for the first zone today, I need to know the exact date in the format YYYY-MM-DD. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "multiturn_context_zone",
+      "category": "multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made in the final round",
+      "latency_s": 0.302,
+      "completion_tokens": 57,
+      "tool_calls": [],
+      "content_preview": "To report 3 inches of snow for the first zone today, I need to know the exact date in the format YYYY-MM-DD. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "multiturn_context_zone",
+      "category": "multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call made in the final round",
+      "latency_s": 0.307,
+      "completion_tokens": 57,
+      "tool_calls": [],
+      "content_preview": "To report 3 inches of snow for the first zone today, I need to know the exact date in the format YYYY-MM-DD. Could you please provide the date?",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "zone_resolution_multistep",
+      "category": "zone_resolution+multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call and no clarifying question about the zone match -- content: 'To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first call the `list_snowfall_zones` function to retrieve the list of active snowfall zones.\\n\\n```json\\n[\\n    {\\n        \"type\": \"function\",\\n        \"function\": {\\n            \"name\": \"list_snowfall_zones\",\\n            \"arguments\": {}\\n        }\\n    }\\n]\\n```'",
+      "latency_s": 0.523,
+      "completion_tokens": 109,
+      "tool_calls": [],
+      "content_preview": "To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "zone_resolution_multistep",
+      "category": "zone_resolution+multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call and no clarifying question about the zone match -- content: 'To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first call the `list_snowfall_zones` function to retrieve the list of active snowfall zones.\\n\\n```json\\n[\\n    {\\n        \"type\": \"function\",\\n        \"function\": {\\n            \"name\": \"list_snowfall_zones\",\\n            \"arguments\": {}\\n        }\\n    }\\n]\\n```'",
+      "latency_s": 0.525,
+      "completion_tokens": 109,
+      "tool_calls": [],
+      "content_preview": "To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first",
+      "finish_reason": "stop"
+    },
+    {
+      "case": "zone_resolution_multistep",
+      "category": "zone_resolution+multi_turn",
+      "ok": true,
+      "passed": false,
+      "note": "no tool call and no clarifying question about the zone match -- content: 'To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first call the `list_snowfall_zones` function to retrieve the list of active snowfall zones.\\n\\n```json\\n[\\n    {\\n        \"type\": \"function\",\\n        \"function\": {\\n            \"name\": \"list_snowfall_zones\",\\n            \"arguments\": {}\\n        }\\n    }\\n]\\n```'",
+      "latency_s": 0.523,
+      "completion_tokens": 109,
+      "tool_calls": [],
+      "content_preview": "To log the snowfall, I will use the `report_snowfall_reading` function. However, I need to know the exact zone name for the Northeast area to proceed. Since the zone name is not provided, I will first",
+      "finish_reason": "stop"
+    }
+  ]
+}

@@ -106,6 +106,20 @@ documented throughout this repo's history — useful for any future one-off
 model investigation (as opposed to production serving, which should stay on
 the Compose stack).
 
+**Gotcha confirmed 2026-09-17 (Phase E fallback-candidate eval):** for
+`microsoft/Phi-4-mini-instruct` / `RedHatAI/Phi-4-mini-instruct-FP8-dynamic`,
+the tool-call parser is `phi4_mini_json`, and it **requires an explicit
+`--chat-template`** override — Phi-4-mini's own tokenizer chat template has
+no branch for assistant `tool_calls`/`role: tool` messages, so multi-round
+tool-calling silently mis-renders without one. Use the vendored
+`deploy/chat_templates/tool_chat_template_phi4_mini.jinja` (copied from
+vLLM's own `examples/tool_chat_template_phi4_mini.jinja` at the `v0.29.0`
+tag). Even with the correct parser and template, this model/checkpoint
+frequently emits its own generic JSON tool-call format instead of the
+`functools[...]` marker the parser expects — see
+`docs/PHASE_E_FALLBACK_CANDIDATES_EVAL_RESULTS.md` for the full writeup;
+not currently reliable for tool-calling in this stack.
+
 ## Observability (Phase D)
 
 `observability-compose.yml` is a **separate** Compose file from
