@@ -44,8 +44,10 @@ python3 bench_baseline.py
 # point at a different host, more repeats for a tighter p95, subset of shapes
 python3 bench_baseline.py --base-url http://192.168.60.157:8000/v1 --repeats 8 --shapes short_short,long_long
 
-# if/when Phase C adds an API key requirement
-VLLM_API_KEY=sk-... python3 bench_baseline.py
+# once Phase C's auth is deployed, get the key from deploy/.env on the
+# VM -- unauthenticated requests to /v1/* get a 401
+export VLLM_API_KEY=<value from deploy/.env>
+python3 bench_baseline.py
 ```
 
 Each run prints a summary table and writes a full JSON record (per-request raw results + summary stats) to `results/baseline_<UTC timestamp>.json`. Commit result files you want to keep as reference points — that's the whole point of tracking them here instead of letting them scroll off in a terminal.

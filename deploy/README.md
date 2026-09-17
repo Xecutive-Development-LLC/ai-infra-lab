@@ -54,11 +54,42 @@ docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
 docker` → `enabled`), so the daemon itself starts on boot without any extra
 step.
 
+## Authentication
+
+The `vllm` service reads `VLLM_API_KEY` from `.env` (via `env_file:` in
+`docker-compose.yml`) -- vLLM picks this up natively from the environment,
+no `--api-key` CLI flag needed. Copy `deploy/.env.example` to
+`~/vllm-deploy/.env` on the VM and fill in a real value
+(`openssl rand -hex 32`); `.env` is gitignored and must never be committed.
+
+**Scope, confirmed via vLLM's own `--help` text**: the key only protects
+endpoints under `/v1`, `/v2`, and `/inference`. `/health` and `/metrics`
+stay open regardless -- this is why Phase D's Prometheus scrape config
+needs no auth wiring, and why a healthcheck hitting `/health` keeps working
+unmodified.
+
+**Coordination point, not implemented here**: the moment `.env` lands and
+the container restarts, every unauthenticated request starts failing with
+401 -- including from the Operator Portal, which depends on this server
+right now, and eventually the LangGraph agentic-layer project once that's
+live. Both need this same key in their own config. Treat rolling this out
+as one coordinated window across repos, not an independent merge here.
+
+## Logging
+
+Both services use the `json-file` driver with `max-size: 10m` /
+`max-file: 3` (30MB cap per container) instead of Docker's unbounded
+default -- container logs would otherwise grow indefinitely on a
+long-lived container. Check current usage with:
+```bash
+docker inspect --format='{{.LogPath}}' vllm
+```
+
 ## Deploying
 
 ```bash
 mkdir -p ~/vllm-deploy && cd ~/vllm-deploy
-# copy docker-compose.yml here
+# copy docker-compose.yml here, plus .env (see Authentication above)
 docker compose up -d
 ```
 
