@@ -2,9 +2,17 @@
 
 The inference server runs as a Docker Compose stack on the VM
 (`192.168.60.157`), not a manually-launched `nohup vllm serve` process — that
-was the setup for all of Phases A/B/D/E's research and benchmarking, but
-production now depends on this server for real (Operator Portal), so it
-needed to survive reboots and crashes without someone SSHing in.
+was the setup for all of Phases A/B/D/E's research and benchmarking, but this
+is meant to be the real production target for the Operator Portal and the
+future agentic-orchestration layer, so it needed to survive reboots and
+crashes without someone SSHing in.
+
+**Current state (2026-09-17): idle.** Neither the Operator Portal's AI
+features nor the agentic-orchestration layer are live yet — nothing is
+currently sending real traffic to this server besides this repo's own
+benchmark/eval runs. That means stop/restart windows here carry no active
+outage risk today; the auth and observability work below still needs to
+land *before* those layers go live, not urgently right now.
 
 ## What's here
 
@@ -54,11 +62,42 @@ docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
 docker` → `enabled`), so the daemon itself starts on boot without any extra
 step.
 
+## Authentication
+
+The `vllm` service reads `VLLM_API_KEY` from `.env` (via `env_file:` in
+`docker-compose.yml`) -- vLLM picks this up natively from the environment,
+no `--api-key` CLI flag needed. Copy `deploy/.env.example` to
+`~/vllm-deploy/.env` on the VM and fill in a real value
+(`openssl rand -hex 32`); `.env` is gitignored and must never be committed.
+
+**Scope, confirmed via vLLM's own `--help` text**: the key only protects
+endpoints under `/v1`, `/v2`, and `/inference`. `/health` and `/metrics`
+stay open regardless -- this is why Phase D's Prometheus scrape config
+needs no auth wiring, and why a healthcheck hitting `/health` keeps working
+unmodified.
+
+**Prerequisite, not implemented here**: neither the Operator Portal's AI
+features nor the LangGraph agentic-orchestration layer are live yet, so
+flipping this on today causes no active outage -- but both will need this
+same `VLLM_API_KEY` in their own config before they can call this server at
+all, once they do go live. Land it in their config as part of standing up
+each of those integrations, not as a fire drill after the fact.
+
+## Logging
+
+Both services use the `json-file` driver with `max-size: 10m` /
+`max-file: 3` (30MB cap per container) instead of Docker's unbounded
+default -- container logs would otherwise grow indefinitely on a
+long-lived container. Check current usage with:
+```bash
+docker inspect --format='{{.LogPath}}' vllm
+```
+
 ## Deploying
 
 ```bash
 mkdir -p ~/vllm-deploy && cd ~/vllm-deploy
-# copy docker-compose.yml here
+# copy docker-compose.yml here, plus .env (see Authentication above)
 docker compose up -d
 ```
 

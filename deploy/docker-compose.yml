@@ -6,12 +6,23 @@ services:
     ipc: host
     ports:
       - "8000:8000"
+    env_file:
+      # VLLM_API_KEY lives here (deploy/.env on the VM, gitignored, never
+      # committed) -- vLLM reads it natively, no --api-key CLI flag needed.
+      # Only gates /v1, /v2, /inference paths; /health and /metrics stay
+      # open regardless (confirmed via vLLM's own --help text).
+      - .env
     environment:
       # RTX 5090 (sm120) landmine: block-scaled FP8 weights crash under
       # DeepGEMM on this GPU generation. See docs/AI_Inference_Server_Build_Log_and_Roadmap.md
       # section 7 and docs/MODEL_COMPARISON_ROUND2_RESULTS.md.
       - VLLM_USE_DEEP_GEMM=0
       - VLLM_MOE_USE_DEEP_GEMM=0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       # Reuse already-downloaded model weights instead of re-downloading.
       - /home/jeevan/.cache/huggingface:/root/.cache/huggingface
@@ -58,6 +69,11 @@ services:
     restart: unless-stopped
     environment:
       - AUTOHEAL_CONTAINER_LABEL=autoheal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
