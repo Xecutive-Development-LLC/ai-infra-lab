@@ -105,3 +105,69 @@ with `VLLM_USE_DEEP_GEMM=0 VLLM_MOE_USE_DEEP_GEMM=0` set works exactly as
 documented throughout this repo's history — useful for any future one-off
 model investigation (as opposed to production serving, which should stay on
 the Compose stack).
+
+## Observability (Phase D)
+
+`observability-compose.yml` is a **separate** Compose file from
+`docker-compose.yml` — deliberately not merged into production's stack.
+Reasoning: independent lifecycle (`docker compose -f observability-compose.yml
+down` never touches the `vllm`/`autoheal` services), and it doesn't need to.
+Three services:
+
+- **`prometheus`** ([prom/prometheus](https://hub.docker.com/r/prom/prometheus)) —
+  scrapes vLLM's own native Prometheus metrics endpoint plus the GPU
+  exporter below. Config: `observability/prometheus.yml`.
+- **`grafana`** ([grafana/grafana](https://hub.docker.com/r/grafana/grafana)) —
+  dashboards. Datasource and the vLLM dashboard are provisioned
+  automatically (`observability/grafana/provisioning/`,
+  `observability/grafana/dashboards/vllm.json` — vendored from vLLM's own
+  `examples/observability/prometheus_grafana/grafana.json` at the `v0.29.0`
+  tag, with its `${DS_PROMETHEUS}` template variable rewritten to the fixed
+  `prometheus` datasource uid so it resolves under file-based provisioning
+  — Grafana's *import* flow prompts for that substitution, but provisioning
+  from disk does not).
+- **`gpu-exporter`** ([utkuozdemir/nvidia_gpu_exporter](https://github.com/utkuozdemir/nvidia_gpu_exporter)) —
+  wraps `nvidia-smi` for GPU utilization/VRAM/thermals/power. Chosen over
+  NVIDIA DCGM, which targets Kubernetes/datacenter GPU fleets — overkill for
+  one consumer RTX 5090. Confirmed it doesn't contend with vLLM for VRAM;
+  it only polls `nvidia-smi`, no GPU memory allocation of its own.
+
+### Why `host.docker.internal`, not a shared Docker network
+
+Prometheus scrapes vLLM at `host.docker.internal:8000` (the same port
+already published to the host by `docker-compose.yml`) rather than joining
+that file's auto-generated network and using `vllm`'s service-name DNS. This
+is vLLM's own documented pattern
+(`examples/observability/prometheus_grafana/` upstream) and means this file
+never needs to know or hardcode the production compose file's network name.
+`extra_hosts: ["host.docker.internal:host-gateway"]` makes that hostname
+resolve on Linux (it's automatic on Docker Desktop, not on Linux hosts like
+this VM).
+
+No auth/bearer-token config is needed in `prometheus.yml`: vLLM's
+`--api-key` (Phase C) only protects `/v1`, `/v2`, and `/inference` paths —
+confirmed via vLLM's own `--help` text — `/metrics` and `/health` stay open
+regardless of whether an API key is configured.
+
+### Deploying
+
+```bash
+mkdir -p ~/vllm-deploy/observability
+# copy observability-compose.yml and the observability/ directory here
+cd ~/vllm-deploy
+docker compose -f observability-compose.yml up -d
+```
+
+Prometheus: `http://<vm>:9090` (check **Status → Targets**, both `vllm` and
+`gpu` jobs should show `UP`). Grafana: `http://<vm>:3000`, default login
+`admin`/`admin` (Grafana forces a password change on first login) — no
+further hardening applied here, same "acceptable while LAN-only" posture as
+the rest of this deployment.
+
+### GPU dashboard: one-time manual import
+
+The vLLM dashboard is provisioned automatically, but the GPU
+utilization/VRAM/thermal dashboard is not vendored into this repo — import
+it once by hand instead: Grafana UI → **Dashboards → New → Import** →
+dashboard ID `14574` ("Nvidia GPU Metrics", the `nvidia_gpu_exporter`
+maintainer's own dashboard) → select the **Prometheus** datasource → Import.

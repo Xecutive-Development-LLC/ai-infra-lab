@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # vLLM exposes Prometheus-format metrics natively on the same port as the
+  # OpenAI-compatible API. /metrics is not gated by VLLM_API_KEY (that only
+  # protects /v1, /v2, /inference paths), so no auth config is needed here
+  # regardless of whether Phase C's API key is enabled.
+  - job_name: vllm
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  - job_name: gpu
+    static_configs:
+      - targets: ["gpu-exporter:9835"]
