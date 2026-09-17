@@ -2,9 +2,17 @@
 
 The inference server runs as a Docker Compose stack on the VM
 (`192.168.60.157`), not a manually-launched `nohup vllm serve` process — that
-was the setup for all of Phases A/B/D/E's research and benchmarking, but
-production now depends on this server for real (Operator Portal), so it
-needed to survive reboots and crashes without someone SSHing in.
+was the setup for all of Phases A/B/D/E's research and benchmarking, but this
+is meant to be the real production target for the Operator Portal and the
+future agentic-orchestration layer, so it needed to survive reboots and
+crashes without someone SSHing in.
+
+**Current state (2026-09-17): idle.** Neither the Operator Portal's AI
+features nor the agentic-orchestration layer are live yet — nothing is
+currently sending real traffic to this server besides this repo's own
+benchmark/eval runs. That means stop/restart windows here carry no active
+outage risk today; the auth and observability work below still needs to
+land *before* those layers go live, not urgently right now.
 
 ## What's here
 
@@ -68,12 +76,12 @@ stay open regardless -- this is why Phase D's Prometheus scrape config
 needs no auth wiring, and why a healthcheck hitting `/health` keeps working
 unmodified.
 
-**Coordination point, not implemented here**: the moment `.env` lands and
-the container restarts, every unauthenticated request starts failing with
-401 -- including from the Operator Portal, which depends on this server
-right now, and eventually the LangGraph agentic-layer project once that's
-live. Both need this same key in their own config. Treat rolling this out
-as one coordinated window across repos, not an independent merge here.
+**Prerequisite, not implemented here**: neither the Operator Portal's AI
+features nor the LangGraph agentic-orchestration layer are live yet, so
+flipping this on today causes no active outage -- but both will need this
+same `VLLM_API_KEY` in their own config before they can call this server at
+all, once they do go live. Land it in their config as part of standing up
+each of those integrations, not as a fire drill after the fact.
 
 ## Logging
 
