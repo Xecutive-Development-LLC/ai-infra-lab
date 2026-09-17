@@ -1,0 +1,13 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    # Fixed uid so the vendored vllm.json dashboard's ${DS_PROMETHEUS}
+    # template references (rewritten to this literal uid at vendor time)
+    # resolve under file-based provisioning, which -- unlike Grafana's
+    # UI import flow -- does not prompt to substitute datasource variables.
+    uid: prometheus

@@ -518,3 +518,20 @@ one silently produces plain-text rambling instead of a `tool_calls` response
 architecture-specific in this repo), and Qwen3.5-4B visibly reasons in
 `content` before every tool call (more completion tokens per call than the
 incumbent's direct calls) — a real latency/cost tradeoff, not free caution.
+
+**Fallback-candidate pass (2026-09-17), validate-only:** ran the same eval
+against `Qwen/Qwen3.5-4B` (BF16, same parser as the champion, no new
+unknowns) and `RedHatAI/Phi-4-mini-instruct-FP8-dynamic` (needed
+`--tool-call-parser phi4_mini_json` plus a vendored chat template, see
+`deploy/chat_templates/`). Full writeup:
+`docs/PHASE_E_FALLBACK_CANDIDATES_EVAL_RESULTS.md`. Qwen3.5-4B-BF16 scored
+36/42 (worse zone-resolution than the FP8 champion — a real behavioral gap
+between the two checkpoints, not just a precision difference) — usable as a
+same-family fallback, not a drop-in match. Phi-4-mini-instruct-FP8 scored
+24/42 — not primarily a tool-selection problem (its safety-relevant subset
+tied the champion at 9/12), but a genuine parser/output-format mismatch:
+the model reliably emits its own generic markdown-fenced JSON tool-call
+format instead of the `functools[...]` marker `phi4_mini_json`'s parser
+looks for, so vLLM reports zero tool calls even when the model's intent was
+correct. Not viable as a fallback as currently configured — logged as a
+landmine, not chased further this pass.
