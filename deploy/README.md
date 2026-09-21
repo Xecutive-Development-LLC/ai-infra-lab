@@ -16,8 +16,11 @@ land *before* those layers go live, not urgently right now.
 
 ## What's here
 
-`docker-compose.yml` — the actual deployed config, kept in sync with what's
-running on the VM at `~/vllm-deploy/docker-compose.yml`. Two services:
+`docker-compose.yml` — the actual deployed config. `.github/workflows/deploy.yml`
+auto-syncs this file to `~/vllm-deploy/docker-compose.yml` and runs
+`docker compose -p vllm-deploy up -d` on a self-hosted runner on the VM
+itself whenever this file changes on `main` (or via manual
+`workflow_dispatch`) — no more manually copying it over by hand. Two services:
 
 - **`vllm`** — `vllm/vllm-openai:v0.29.0` (pinned to match the version this
   project's whole history of RTX-5090-specific landmines was found and fixed

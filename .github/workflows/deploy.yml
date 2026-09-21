@@ -1,0 +1,23 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/docker-compose.yml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, ai-infra-lab]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync compose file to the deploy directory
+        run: cp deploy/docker-compose.yml ~/vllm-deploy/docker-compose.yml
+
+      - name: Deploy
+        run: |
+          cd ~/vllm-deploy
+          docker compose -p vllm-deploy up -d
