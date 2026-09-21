@@ -1,0 +1,35 @@
+name: Mirror main to jeevangowda0711 and techopsspec
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror main to jeevangowda0711/ai-infra-lab
+        env:
+          TOKEN: ${{ secrets.MIRROR_PAT_JEEVANGOWDA0711 }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MIRROR_PAT_JEEVANGOWDA0711 secret not set, skipping" >&2
+            exit 1
+          fi
+          git push "https://x-access-token:${TOKEN}@github.com/jeevangowda0711/ai-infra-lab.git" HEAD:main
+
+      - name: Mirror main to techopsspec/ai-infra-lab
+        env:
+          TOKEN: ${{ secrets.MIRROR_PAT_TECHOPSSPEC }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MIRROR_PAT_TECHOPSSPEC secret not set, skipping mirror to techopsspec" >&2
+            exit 0
+          fi
+          git push "https://x-access-token:${TOKEN}@github.com/techopsspec/ai-infra-lab.git" HEAD:main
